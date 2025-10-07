@@ -199,6 +199,15 @@ CREATE TABLE IF NOT EXISTS streamers (
 );
 `);
 
+// 7) Таблица для распределённых локов на поллинг DonationAlerts
+db.exec(`
+CREATE TABLE IF NOT EXISTS da_poll_locks (
+  streamer_twitch_id TEXT PRIMARY KEY,
+  locked_by TEXT,
+  locked_until INTEGER NOT NULL DEFAULT 0
+);
+`);
+
 // 7) Таблица для хранения оверлейного состояния стримеров
 db.exec(`
 CREATE TABLE IF NOT EXISTS streamer_overlay_state (
@@ -376,6 +385,34 @@ function getStreamerDA(streamerTwitchId) {
 
 function getAllStreamers() {
   return db.prepare('SELECT * FROM streamers WHERE status = ?').all('active');
+}
+
+// Функции для распределённых локов DonationAlerts
+function acquirePollLock(streamerTwitchId, lockedBy, ttlSeconds) {
+  const now = Math.floor(Date.now() / 1000);
+  const newExpiry = now + ttlSeconds;
+  const stmt = db.prepare(`
+    INSERT INTO da_poll_locks (streamer_twitch_id, locked_by, locked_until)
+    VALUES (?, ?, ?)
+    ON CONFLICT(streamer_twitch_id) DO UPDATE SET
+      locked_by = excluded.locked_by,
+      locked_until = excluded.locked_until
+    WHERE da_poll_locks.locked_until <= ? OR da_poll_locks.locked_by = ?
+  `);
+
+  const result = stmt.run(streamerTwitchId, lockedBy, newExpiry, now, lockedBy);
+  return result.changes > 0;
+}
+
+function releasePollLock(streamerTwitchId, lockedBy) {
+  const stmt = db.prepare(`
+    UPDATE da_poll_locks
+    SET locked_until = 0, locked_by = NULL
+    WHERE streamer_twitch_id = ? AND locked_by = ?
+  `);
+
+  const result = stmt.run(streamerTwitchId, lockedBy);
+  return result.changes > 0;
 }
 
 // Функции для идемпотентности донатов
@@ -1105,6 +1142,8 @@ module.exports = {
   upsertStreamerDA,
   getStreamerDA,
   getAllStreamers,
+  acquirePollLock,
+  releasePollLock,
   markDonationProcessed,
   isDonationProcessed,
   setUserDA,
