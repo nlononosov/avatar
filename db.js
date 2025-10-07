@@ -199,6 +199,16 @@ CREATE TABLE IF NOT EXISTS streamers (
 );
 `);
 
+// 7) Таблица для хранения оверлейного состояния стримеров
+db.exec(`
+CREATE TABLE IF NOT EXISTS streamer_overlay_state (
+  streamer_id TEXT PRIMARY KEY,
+  state_json TEXT NOT NULL,
+  updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  FOREIGN KEY(streamer_id) REFERENCES users(twitch_user_id) ON DELETE CASCADE
+);
+`);
+
 // 7) Индекс для быстрого поиска по da_user_id
 db.exec(`CREATE INDEX IF NOT EXISTS idx_streamers_da_user_id ON streamers(da_user_id);`);
 
@@ -989,7 +999,7 @@ function updateGiftInfo(giftType, giftId, name, description) {
   try {
     const now = Date.now();
     const giftIdStr = `gift_${giftType}_${giftId}`;
-    
+
     const existing = db.prepare(`SELECT id FROM gifts WHERE id = ?`).get(giftIdStr);
     
     if (existing) {
@@ -1010,6 +1020,52 @@ function updateGiftInfo(giftType, giftId, name, description) {
     return true;
   } catch (error) {
     console.error('Error updating gift info:', error);
+    return false;
+  }
+}
+
+function getStreamerOverlayState(streamerId) {
+  if (!streamerId) {
+    return null;
+  }
+
+  try {
+    const row = db.prepare(`
+      SELECT state_json
+      FROM streamer_overlay_state
+      WHERE streamer_id = ?
+    `).get(streamerId);
+
+    if (!row || !row.state_json) {
+      return null;
+    }
+
+    return JSON.parse(row.state_json);
+  } catch (error) {
+    console.error('Error loading overlay state:', error);
+    return null;
+  }
+}
+
+function setStreamerOverlayState(streamerId, state) {
+  if (!streamerId) {
+    throw new Error('streamerId is required to save overlay state');
+  }
+
+  try {
+    const payload = JSON.stringify(state || {});
+    const now = Date.now();
+
+    db.prepare(`
+      INSERT INTO streamer_overlay_state (streamer_id, state_json, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(streamer_id)
+      DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at
+    `).run(streamerId, payload, now);
+
+    return true;
+  } catch (error) {
+    console.error('Error saving overlay state:', error);
     return false;
   }
 }
@@ -1061,6 +1117,8 @@ module.exports = {
   getGiftInfo,
   getAllGifts,
   updateGiftInfo,
+  getStreamerOverlayState,
+  setStreamerOverlayState,
   GIFT_TYPES,
   GIFT_IDS,
   db

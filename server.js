@@ -21,7 +21,7 @@ const { registerDonationAlertsAuthRoutes } = require('./routes/donationalerts-au
 const { registerDonationAlertsConnectRoutes } = require('./routes/donationalerts-connect');
 const { registerDebugRoutes } = require('./routes/debug');
 const { overlayEventsHandler } = require('./lib/bus');
-const { finishRace, finishFoodGame } = require('./services/bot');
+const { finishRace, finishFoodGame, getBotClient, getBotChannel, getGame } = require('./services/bot');
 const { handleWebhook, validateWebhook } = require('./lib/yookassa');
 const { initializeUsernameCache } = require('./lib/donationalerts');
 
@@ -46,18 +46,22 @@ app.get('/overlay/events', (req, res) => {
 // Race finish API
 app.post('/api/race/finish', (req, res) => {
   try {
-    const { winnerId } = req.body;
+    const { winnerId, streamerId: bodyStreamerId } = req.body;
+    const streamerId = bodyStreamerId || req.cookies?.uid;
     if (!winnerId) {
       return res.status(400).json({ error: 'Missing winnerId' });
     }
-    
+
+    if (!streamerId) {
+      return res.status(400).json({ error: 'Missing streamerId' });
+    }
+
     // Get bot client and channel from bot service
-    const { getBotClient, getBotChannel } = require('./services/bot');
-    const client = getBotClient();
-    const channel = getBotChannel();
-    
+    const client = getBotClient(String(streamerId));
+    const channel = getBotChannel(String(streamerId));
+
     if (client && channel) {
-      finishRace(winnerId, client, channel);
+      finishRace(String(streamerId), winnerId, client, channel);
       res.json({ success: true, message: 'Race finished' });
     } else {
       res.status(500).json({ error: 'Bot not connected' });
@@ -71,22 +75,25 @@ app.post('/api/race/finish', (req, res) => {
 // Food game finish API
 app.post('/api/food-game/finish', (req, res) => {
   try {
-    const { winnerId, winnerName } = req.body;
+    const { winnerId, winnerName, streamerId: bodyStreamerId } = req.body;
+    const streamerId = bodyStreamerId || req.cookies?.uid;
 
     if (!winnerId || !winnerName) {
       return res.status(400).json({ error: 'Missing winnerId or winnerName' });
     }
 
+    if (!streamerId) {
+      return res.status(400).json({ error: 'Missing streamerId' });
+    }
+
     // Get bot client and channel from bot service
-    const { getBotClient, getBotChannel } = require('./services/bot');
-    const client = getBotClient();
-    const channel = getBotChannel();
+    const client = getBotClient(String(streamerId));
+    const channel = getBotChannel(String(streamerId));
 
     if (client && channel) {
       // Вызываем finishFoodGame из services/bot.js
       // Предполагается, что функция finishFoodGame существует и отправляет сообщение в чат
-      const { finishFoodGame } = require('./services/bot');
-      finishFoodGame(winnerName, client, channel); // Передаем имя победителя
+      finishFoodGame(String(streamerId), winnerName, client, channel); // Передаем имя победителя
 
       res.json({ success: true, message: 'Food game finished' });
     } else {
@@ -119,10 +126,10 @@ registerDebugRoutes(app);
 
 // API для метрик хитбокса аватаров
 app.post('/api/plane-race/avatar-metrics', express.json(), (req, res) => {
-  const { userId, halfW, halfH } = req.body || {};
-  // Получаем Game из bot.js
-  const { Game } = require('./services/bot');
-  const p = Game.players.get(String(userId));
+  const { userId, halfW, halfH, streamerId: bodyStreamerId } = req.body || {};
+  const streamerId = bodyStreamerId || req.cookies?.uid;
+  const game = streamerId ? getGame(String(streamerId)) : null;
+  const p = game?.players?.get(String(userId));
   if (p && Number.isFinite(halfW)) { p.halfW = halfW; }
   if (p && Number.isFinite(halfH)) { p.halfH = halfH; }
   res.json({ ok: true });
