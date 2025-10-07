@@ -2,11 +2,11 @@ const { addGiftToUser, getUserGifts, getUserGiftStats, getRandomGift, GIFT_TYPES
 
 function registerGiftRoutes(app) {
   // Get user's gift statistics
-  app.get('/api/gifts/:userId', (req, res) => {
+  app.get('/api/gifts/:userId', async (req, res) => {
     try {
       const { userId } = req.params;
-      const gifts = getUserGifts(userId);
-      const stats = getUserGiftStats(userId);
+      const gifts = await getUserGifts(userId);
+      const stats = await getUserGiftStats(userId);
       
       res.json({
         success: true,
@@ -25,7 +25,7 @@ function registerGiftRoutes(app) {
   });
 
   // Give a gift to a user
-  app.post('/api/gifts/give', (req, res) => {
+  app.post('/api/gifts/give', async (req, res) => {
     try {
       const { userId, giftType, giftId } = req.body;
       
@@ -43,7 +43,7 @@ function registerGiftRoutes(app) {
         });
       }
 
-      addGiftToUser(userId, giftType, giftId);
+      await addGiftToUser(userId, giftType, giftId);
       
       res.json({
         success: true,

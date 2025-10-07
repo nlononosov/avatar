@@ -162,15 +162,24 @@ function createOverlayState(streamerId) {
 
   let persistTimer = null;
   let persistSuspended = false;
-  const raw = getStreamerOverlayState(streamerId) || {};
 
-  const overlayState = {};
+  const overlayState = {
+    activeAvatars: makeSet([]),
+    avatarLastActivity: makeMap([]),
+    avatarStates: makeMap([]),
+    avatarTimeoutSeconds: 300,
+    raceState: restoreRaceState(),
+    foodGameState: restoreFoodGameState(),
+    planeGame: restorePlaneGame(),
+    racePlanState: restoreRacePlanState(),
+    avatarMetrics: makeMap([])
+  };
 
   async function persistNow() {
     const serialized = serializeState();
 
     try {
-      setStreamerOverlayState(streamerId, serialized);
+      await setStreamerOverlayState(streamerId, serialized);
     } catch (error) {
       console.error(`[overlay-state] Failed to persist to DB for ${streamerId}:`, error);
     }
@@ -266,15 +275,22 @@ function createOverlayState(streamerId) {
     };
   }
 
-  overlayState.activeAvatars = makeSet(raw.activeAvatars);
-  overlayState.avatarLastActivity = makeMap(raw.avatarLastActivity);
-  overlayState.avatarStates = makeMap(raw.avatarStates);
-  overlayState.avatarTimeoutSeconds = Number.isFinite(raw.avatarTimeoutSeconds) ? raw.avatarTimeoutSeconds : 300;
-  overlayState.raceState = restoreRaceState(raw.raceState);
-  overlayState.foodGameState = restoreFoodGameState(raw.foodGameState);
-  overlayState.planeGame = restorePlaneGame(raw.planeGame);
-  overlayState.racePlanState = restoreRacePlanState(raw.racePlanState);
-  overlayState.avatarMetrics = makeMap(raw.avatarMetrics);
+  const hydrateOverlayState = (data = {}) => {
+    withSuppressedPersistence(() => {
+      applySerializedState(data);
+    });
+  };
+  hydrateOverlayState({});
+
+  getStreamerOverlayState(streamerId)
+    .then(state => {
+      if (state) {
+        hydrateOverlayState(state);
+      }
+    })
+    .catch(error => {
+      console.error(`[overlay-state] Failed to load initial state for ${streamerId}:`, error);
+    });
 
   function withSuppressedPersistence(fn) {
     persistSuspended = true;

@@ -136,7 +136,9 @@ app.post('/api/plane-race/avatar-metrics', express.json(), (req, res) => {
 });
 
 // Initialize DonationAlerts username cache
-initializeUsernameCache();
+initializeUsernameCache().catch(error => {
+  console.error('[server] Failed to initialize username cache:', error);
+});
 
 // Start DonationAlerts polling
 const { startPolling } = require('./lib/donationalerts-poll');

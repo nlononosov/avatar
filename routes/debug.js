@@ -1,6 +1,5 @@
 const { emit, emitToStreamer, getAllSubscriberCounts } = require('../lib/bus');
 const { logLine } = require('../lib/logger');
-const { getUserByTwitchId } = require('../db');
 const { findUserByUsername } = require('../lib/donationalerts');
 
 function registerDebugRoutes(app) {
@@ -89,7 +88,7 @@ function registerDebugRoutes(app) {
 
       // Получаем данные аватара
       const { getAvatarByTwitchId } = require('../db');
-      let avatarData = getAvatarByTwitchId(user.twitch_user_id);
+      let avatarData = await getAvatarByTwitchId(user.twitch_user_id);
       
       if (!avatarData) {
         avatarData = {
@@ -137,10 +136,10 @@ function registerDebugRoutes(app) {
   });
 
   // Получение списка пользователей
-  app.get('/debug/users', (req, res) => {
+  app.get('/debug/users', async (req, res) => {
     try {
       const { getAllUsers } = require('../db');
-      const users = getAllUsers();
+      const users = await getAllUsers();
       res.json(users.map(user => ({
         twitch_user_id: user.twitch_user_id,
         display_name: user.display_name,
@@ -155,10 +154,10 @@ function registerDebugRoutes(app) {
   });
 
   // Получение списка стримеров с DA
-  app.get('/debug/streamers', (req, res) => {
+  app.get('/debug/streamers', async (req, res) => {
     try {
       const { getAllStreamers } = require('../db');
-      const streamers = getAllStreamers();
+      const streamers = await getAllStreamers();
       res.json(streamers.map(streamer => ({
         streamer_twitch_id: streamer.streamer_twitch_id,
         twitch_login: streamer.twitch_login,
@@ -173,7 +172,7 @@ function registerDebugRoutes(app) {
   });
 
   // Тест нормализации имени
-app.get('/debug/test-normalize', (req, res) => {
+app.get('/debug/test-normalize', async (req, res) => {
   try {
     const { findUserByNormalizedLogin } = require('../db');
     const { username } = req.query;
@@ -183,7 +182,7 @@ app.get('/debug/test-normalize', (req, res) => {
     }
 
     const normalized = username.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[_\-]+/g, '_');
-    const user = findUserByNormalizedLogin(username);
+    const user = await findUserByNormalizedLogin(username);
 
     res.json({
       original: username,

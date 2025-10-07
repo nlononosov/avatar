@@ -16,4 +16,4 @@
    ```
 4. Open `http://localhost:3000` and click "Вход".
 
-Tokens and user are saved into `data.sqlite` for later chat access.
+Tokens and user data are stored in the PostgreSQL database configured via `DATABASE_URL`.

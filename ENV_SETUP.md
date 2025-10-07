@@ -39,7 +39,18 @@ YK_SECRET_KEY=test_qtwttzXkPYl3duCCyPJwjUZmOIj0Aa1gAQay_2jvf_o
 npm start
 ```
 
-### 5. Проверьте логи
+### 5. Настройте базу данных PostgreSQL
+
+Сервер использует PostgreSQL. Добавьте в `.env` переменную:
+
+```
+DATABASE_URL=postgres://user:password@localhost:5432/avatar
+```
+
+Создайте пользователя и базу данных с правами на запись и чтение.
+После изменения переменных перезапустите сервер.
+
+### 6. Проверьте логи
 При запуске вы должны увидеть:
 ```
 [config] YK_SHOP_ID = Set

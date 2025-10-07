@@ -9,7 +9,7 @@ function registerDonationAlertsConnectRoutes(app) {
 
       const { upsertStreamerDA } = require('../db');
       // Устанавливаем статус need_reauth для стримера
-      upsertStreamerDA({
+      await upsertStreamerDA({
         streamer_twitch_id: uid,
         status: 'need_reauth',
         da_access_token: null,
@@ -37,7 +37,7 @@ function registerDonationAlertsConnectRoutes(app) {
       }
 
       const { getStreamerDA } = require('../db');
-      const streamerDA = getStreamerDA(uid);
+      const streamerDA = await getStreamerDA(uid);
       
       res.json({
         connected: !!(streamerDA && streamerDA.da_access_token && streamerDA.status === 'active'),

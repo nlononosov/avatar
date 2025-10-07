@@ -1,14 +1,24 @@
-const Database = require('better-sqlite3');
+const { Pool } = require('pg');
 const path = require('path');
 const fs = require('fs');
 
-const dbPath = path.join(__dirname, 'data.sqlite');
-const db = new Database(dbPath, { fileMustExist: false });
+const {
+  DATABASE_URL = 'postgres://postgres:postgres@localhost:5432/avatar',
+  PGPOOL_MAX,
+  PGPOOL_IDLE_TIMEOUT,
+  PGPOOL_CONNECTION_TIMEOUT
+} = process.env;
 
-// Gift types and IDs
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  max: PGPOOL_MAX ? Number(PGPOOL_MAX) : 20,
+  idleTimeoutMillis: PGPOOL_IDLE_TIMEOUT ? Number(PGPOOL_IDLE_TIMEOUT) : 30000,
+  connectionTimeoutMillis: PGPOOL_CONNECTION_TIMEOUT ? Number(PGPOOL_CONNECTION_TIMEOUT) : 2000
+});
+
 const GIFT_TYPES = {
   COMMON: 'common',
-  UNCOMMON: 'uncommon', 
+  UNCOMMON: 'uncommon',
   RARE: 'rare'
 };
 
@@ -18,719 +28,434 @@ const GIFT_IDS = {
   [GIFT_TYPES.RARE]: ['1']
 };
 
-// Надёжнее работать в WAL
-db.pragma('journal_mode = WAL');
+const initPromise = initialize().catch(error => {
+  console.error('[db] Initialization failed:', error);
+  throw error;
+});
 
-// 1) Базовая таблица, если её ещё нет
-db.exec(`
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  twitch_user_id TEXT UNIQUE NOT NULL,
-  display_name TEXT,
-  login TEXT,
-  -- Колонки ниже могут отсутствовать в старой базе, добавим миграцией
-  profile_image_url TEXT,
-  access_token TEXT NOT NULL,
-  refresh_token TEXT,
-  scope TEXT,
-  expires_at INTEGER,
-  updated_at INTEGER NOT NULL
-);
-`);
+async function initialize() {
+  await withClient(async client => {
+    await client.query('BEGIN');
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id SERIAL PRIMARY KEY,
+          twitch_user_id TEXT UNIQUE NOT NULL,
+          display_name TEXT,
+          login TEXT,
+          profile_image_url TEXT,
+          access_token TEXT NOT NULL,
+          refresh_token TEXT,
+          scope TEXT,
+          expires_at BIGINT,
+          updated_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW())),
+          coins INTEGER NOT NULL DEFAULT 0,
+          da_username TEXT,
+          da_user_id TEXT,
+          avatar_timeout_seconds INTEGER NOT NULL DEFAULT 300
+        );
+      `);
 
-// 2) Таблица для настроек игр стримеров
-db.exec(`
-CREATE TABLE IF NOT EXISTS streamer_game_settings (
-  streamer_id TEXT PRIMARY KEY,
-  min_participants INTEGER NOT NULL DEFAULT 1,
-  max_participants INTEGER NOT NULL DEFAULT 10,
-  registration_time INTEGER NOT NULL DEFAULT 10,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS streamer_game_settings (
+          streamer_id TEXT PRIMARY KEY,
+          min_participants INTEGER NOT NULL DEFAULT 1,
+          max_participants INTEGER NOT NULL DEFAULT 10,
+          registration_time INTEGER NOT NULL DEFAULT 10,
+          created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW())),
+          updated_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()))
+        );
+      `);
 
-// 3) Таблица для подарков с названиями
-db.exec(`
-CREATE TABLE IF NOT EXISTS gifts (
-  id TEXT PRIMARY KEY,
-  gift_type TEXT NOT NULL,
-  gift_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  description TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS gifts (
+          id TEXT PRIMARY KEY,
+          gift_type TEXT NOT NULL,
+          gift_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT,
+          created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000),
+          updated_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)
+        );
+      `);
 
-// 4) Миграция: добавить недостающие колонки в существующую таблицу
-(function migrateUsersTable() {
-  const cols = db.prepare(`PRAGMA table_info('users')`).all()
-    .reduce((acc, c) => (acc.add(c.name), acc), new Set());
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS user_avatars (
+          twitch_user_id TEXT PRIMARY KEY,
+          body_skin TEXT NOT NULL DEFAULT 'body_skin_1',
+          face_skin TEXT NOT NULL DEFAULT 'face_skin_1',
+          clothes_type TEXT NOT NULL DEFAULT 'clothes_type_1',
+          others_type TEXT NOT NULL DEFAULT 'others_1',
+          created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000),
+          updated_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000),
+          CONSTRAINT fk_user_avatars_user
+            FOREIGN KEY (twitch_user_id) REFERENCES users(twitch_user_id)
+            ON DELETE CASCADE
+        );
+      `);
 
-  const addColumn = (name, type) => {
-    const sql = `ALTER TABLE users ADD COLUMN ${name} ${type}`;
-    db.exec(sql);
-  };
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS locked_skins (
+          id SERIAL PRIMARY KEY,
+          skin_type TEXT NOT NULL,
+          skin_id TEXT NOT NULL,
+          price INTEGER NOT NULL DEFAULT 100,
+          is_locked BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000),
+          UNIQUE (skin_type, skin_id)
+        );
+      `);
 
-  // Добавляем по необходимости (SQLite допускает ADD COLUMN без дефолта)
-  if (!cols.has('profile_image_url')) addColumn('profile_image_url', 'TEXT');
-  if (!cols.has('refresh_token')) addColumn('refresh_token', 'TEXT');
-  if (!cols.has('scope')) addColumn('scope', 'TEXT');
-  if (!cols.has('expires_at')) addColumn('expires_at', 'INTEGER');
-  if (!cols.has('updated_at')) addColumn('updated_at', "INTEGER NOT NULL DEFAULT (strftime('%s','now'))");
-  if (!cols.has('coins')) addColumn('coins', 'INTEGER NOT NULL DEFAULT 0');
-  if (!cols.has('da_username')) addColumn('da_username', 'TEXT');
-  if (!cols.has('da_user_id')) addColumn('da_user_id', 'TEXT');
-  if (!cols.has('avatar_timeout_seconds')) addColumn('avatar_timeout_seconds', 'INTEGER NOT NULL DEFAULT 300');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS user_purchased_skins (
+          id SERIAL PRIMARY KEY,
+          twitch_user_id TEXT NOT NULL,
+          skin_type TEXT NOT NULL,
+          skin_id TEXT NOT NULL,
+          purchased_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000),
+          UNIQUE (twitch_user_id, skin_type, skin_id),
+          CONSTRAINT fk_user_purchased_skins_user
+            FOREIGN KEY (twitch_user_id) REFERENCES users(twitch_user_id)
+            ON DELETE CASCADE
+        );
+      `);
 
-  // Убедимся в уникальности twitch_user_id (на старых БД индекса мог не быть)
-  const idx = db.prepare(`PRAGMA index_list('users')`).all();
-  const hasUniqueIdx = idx.some(i => i.unique && i.name === 'users_twitch_user_id_unique');
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS user_gifts (
+          id SERIAL PRIMARY KEY,
+          twitch_user_id TEXT NOT NULL,
+          gift_type TEXT NOT NULL,
+          gift_id TEXT NOT NULL,
+          count INTEGER NOT NULL DEFAULT 1,
+          created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000),
+          updated_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000),
+          UNIQUE (twitch_user_id, gift_type, gift_id),
+          CONSTRAINT fk_user_gifts_user
+            FOREIGN KEY (twitch_user_id) REFERENCES users(twitch_user_id)
+            ON DELETE CASCADE
+        );
+      `);
 
-  if (!hasUniqueIdx) {
-    // Попробуем создать уникальный индекс (если в таблице уже есть дубль — упадёт).
-    // Если боитесь падения, сначала вручную почистите дубликаты.
-    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_twitch_user_id_unique ON users(twitch_user_id)`);
-  }
-})();
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS user_streamers (
+          id SERIAL PRIMARY KEY,
+          user_twitch_id TEXT NOT NULL,
+          streamer_twitch_id TEXT NOT NULL,
+          created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000),
+          UNIQUE (user_twitch_id, streamer_twitch_id),
+          CONSTRAINT fk_user_streamers_user
+            FOREIGN KEY (user_twitch_id) REFERENCES users(twitch_user_id)
+            ON DELETE CASCADE,
+          CONSTRAINT fk_user_streamers_streamer
+            FOREIGN KEY (streamer_twitch_id) REFERENCES users(twitch_user_id)
+            ON DELETE CASCADE
+        );
+      `);
 
-// Инициализация подарков с названиями
-(function initializeGifts() {
-  const now = Date.now();
-  
-  const gifts = [
-    { id: 'gift_common_1', gift_type: 'common', gift_id: '1', name: 'Печенька', description: 'Вкусное печенье для поднятия настроения' },
-    { id: 'gift_uncommon_1', gift_type: 'uncommon', gift_id: '1', name: 'Коробочка', description: 'Загадочная коробочка с сюрпризом' },
-    { id: 'gift_rare_1', gift_type: 'rare', gift_id: '1', name: 'Тортик', description: 'Праздничный тортик для особого случая' }
-  ];
-  
-  gifts.forEach(gift => {
-    const existing = db.prepare(`SELECT id FROM gifts WHERE id = ?`).get(gift.id);
-    if (!existing) {
-      db.prepare(`
-        INSERT INTO gifts (id, gift_type, gift_id, name, description, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(gift.id, gift.gift_type, gift.gift_id, gift.name, gift.description, now, now);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS streamers (
+          streamer_twitch_id TEXT PRIMARY KEY,
+          twitch_login TEXT,
+          da_user_id TEXT,
+          da_access_token TEXT,
+          da_refresh_token TEXT,
+          da_expires_at BIGINT,
+          status TEXT DEFAULT 'active',
+          created_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000),
+          updated_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)
+        );
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS da_poll_locks (
+          streamer_twitch_id TEXT PRIMARY KEY,
+          locked_by TEXT,
+          locked_until BIGINT NOT NULL DEFAULT 0
+        );
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS streamer_overlay_state (
+          streamer_id TEXT PRIMARY KEY,
+          state_json TEXT NOT NULL,
+          updated_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000),
+          CONSTRAINT fk_streamer_overlay_state_user
+            FOREIGN KEY (streamer_id) REFERENCES users(twitch_user_id)
+            ON DELETE CASCADE
+        );
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS donations_processed (
+          id SERIAL PRIMARY KEY,
+          streamer_twitch_id TEXT NOT NULL,
+          donation_id TEXT NOT NULL,
+          created_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000),
+          UNIQUE (streamer_twitch_id, donation_id)
+        );
+      `);
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_streamers_da_user_id
+        ON streamers(da_user_id);
+      `);
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
     }
   });
-})();
 
-// 3) Таблица для аватаров пользователей
-db.exec(`
-CREATE TABLE IF NOT EXISTS user_avatars (
-  twitch_user_id TEXT PRIMARY KEY,
-  body_skin TEXT NOT NULL DEFAULT 'body_skin_1',
-  face_skin TEXT NOT NULL DEFAULT 'face_skin_1', 
-  clothes_type TEXT NOT NULL DEFAULT 'clothes_type_1',
-  others_type TEXT NOT NULL DEFAULT 'others_1',
-  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-  updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-  FOREIGN KEY(twitch_user_id) REFERENCES users(twitch_user_id) ON DELETE CASCADE
-);
-`);
+  await initializeGifts();
+  await initializeLockedSkins();
+  await clearOldGifts();
+}
 
-// 4) Таблица заблокированных скинов
-db.exec(`
-CREATE TABLE IF NOT EXISTS locked_skins (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  skin_type TEXT NOT NULL,
-  skin_id TEXT NOT NULL,
-  price INTEGER NOT NULL DEFAULT 100,
-  is_locked BOOLEAN NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-  UNIQUE(skin_type, skin_id)
-);
-`);
-
-// 5) Таблица купленных скинов пользователей
-db.exec(`
-CREATE TABLE IF NOT EXISTS user_purchased_skins (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  twitch_user_id TEXT NOT NULL,
-  skin_type TEXT NOT NULL,
-  skin_id TEXT NOT NULL,
-  purchased_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-  FOREIGN KEY (twitch_user_id) REFERENCES users(twitch_user_id),
-  UNIQUE(twitch_user_id, skin_type, skin_id)
-);
-`);
-
-// 4) Таблица для подарков пользователей
-db.exec(`
-CREATE TABLE IF NOT EXISTS user_gifts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  twitch_user_id TEXT NOT NULL,
-  gift_type TEXT NOT NULL,
-  gift_id TEXT NOT NULL,
-  count INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-  updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-  FOREIGN KEY(twitch_user_id) REFERENCES users(twitch_user_id) ON DELETE CASCADE,
-  UNIQUE(twitch_user_id, gift_type, gift_id)
-);
-`);
-
-// 5) Таблица для связи пользователей со стримерами
-db.exec(`
-CREATE TABLE IF NOT EXISTS user_streamers (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_twitch_id TEXT NOT NULL,
-  streamer_twitch_id TEXT NOT NULL,
-  created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-  FOREIGN KEY(user_twitch_id) REFERENCES users(twitch_user_id) ON DELETE CASCADE,
-  FOREIGN KEY(streamer_twitch_id) REFERENCES users(twitch_user_id) ON DELETE CASCADE,
-  UNIQUE(user_twitch_id, streamer_twitch_id)
-);
-`);
-
-// 6) Таблица для токенов DonationAlerts стримеров
-db.exec(`
-CREATE TABLE IF NOT EXISTS streamers (
-  streamer_twitch_id TEXT PRIMARY KEY,
-  twitch_login TEXT,
-  da_user_id TEXT,
-  da_access_token TEXT,
-  da_refresh_token TEXT,
-  da_expires_at INTEGER,
-  status TEXT DEFAULT 'active',
-  created_at INTEGER DEFAULT (strftime('%s','now')),
-  updated_at INTEGER DEFAULT (strftime('%s','now'))
-);
-`);
-
-// 7) Таблица для распределённых локов на поллинг DonationAlerts
-db.exec(`
-CREATE TABLE IF NOT EXISTS da_poll_locks (
-  streamer_twitch_id TEXT PRIMARY KEY,
-  locked_by TEXT,
-  locked_until INTEGER NOT NULL DEFAULT 0
-);
-`);
-
-// 7) Таблица для хранения оверлейного состояния стримеров
-db.exec(`
-CREATE TABLE IF NOT EXISTS streamer_overlay_state (
-  streamer_id TEXT PRIMARY KEY,
-  state_json TEXT NOT NULL,
-  updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-  FOREIGN KEY(streamer_id) REFERENCES users(twitch_user_id) ON DELETE CASCADE
-);
-`);
-
-// 7) Индекс для быстрого поиска по da_user_id
-db.exec(`CREATE INDEX IF NOT EXISTS idx_streamers_da_user_id ON streamers(da_user_id);`);
-
-// 8) Таблица идемпотентности для донатов
-db.exec(`
-CREATE TABLE IF NOT EXISTS donations_processed (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  streamer_twitch_id TEXT NOT NULL,
-  donation_id TEXT NOT NULL,
-  created_at INTEGER DEFAULT (strftime('%s','now')),
-  UNIQUE(streamer_twitch_id, donation_id)
-);
-`);
-
-// 6) Инициализация заблокированных скинов
-(function initializeLockedSkins() {
+async function withClient(fn) {
+  const client = await pool.connect();
   try {
-    // Проверяем, есть ли уже заблокированные скины
-    const existingSkins = db.prepare('SELECT COUNT(*) as count FROM locked_skins').get();
-    
-    if (existingSkins.count === 0) {
-      // Добавляем заблокированные скины
+    return await fn(client);
+  } finally {
+    client.release();
+  }
+}
+
+async function query(sql, params = []) {
+  await initPromise;
+  const { rows } = await pool.query(sql, params);
+  return rows;
+}
+
+async function queryOne(sql, params = []) {
+  const rows = await query(sql, params);
+  return rows[0] || null;
+}
+
+async function run(sql, params = []) {
+  await initPromise;
+  return pool.query(sql, params);
+}
+
+async function initializeGifts() {
+  const now = Date.now();
+  const gifts = [
+    { id: 'gift_common_1', gift_type: 'common', gift_id: '1', name: 'Печенька', description: 'Вкусное печенье для поднятия настроения' },
+    { id: 'gift_uncommon_1', gift_type: 'uncommon', gift_id: '1', name: 'Коробочка', description: 'Загадчная коробочка с сюрпризом' },
+    { id: 'gift_rare_1', gift_type: 'rare', gift_id: '1', name: 'Тортик', description: 'Праздничный тортик для особого случая' }
+  ];
+
+  for (const gift of gifts) {
+    const existing = await queryOne('SELECT id FROM gifts WHERE id = $1', [gift.id]);
+    if (!existing) {
+      await run(
+        `INSERT INTO gifts (id, gift_type, gift_id, name, description, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [gift.id, gift.gift_type, gift.gift_id, gift.name, gift.description, now, now]
+      );
+    }
+  }
+}
+
+async function initializeLockedSkins() {
+  try {
+    const existing = await queryOne('SELECT COUNT(*)::int AS count FROM locked_skins');
+    if (existing && existing.count === 0) {
       const lockedSkins = [
         { skin_type: 'clothes', skin_id: 'clothes_type_2', price: 150 },
         { skin_type: 'body', skin_id: 'body_skin_2', price: 200 },
         { skin_type: 'face', skin_id: 'face_skin_2', price: 100 },
         { skin_type: 'others', skin_id: 'others_2', price: 120 }
       ];
-      
-      const insertStmt = db.prepare('INSERT INTO locked_skins (skin_type, skin_id, price) VALUES (?, ?, ?)');
-      lockedSkins.forEach(skin => {
-        insertStmt.run(skin.skin_type, skin.skin_id, skin.price);
-      });
-      
+
+      for (const skin of lockedSkins) {
+        await run(
+          'INSERT INTO locked_skins (skin_type, skin_id, price) VALUES ($1, $2, $3)
+           ON CONFLICT (skin_type, skin_id) DO NOTHING',
+          [skin.skin_type, skin.skin_id, skin.price]
+        );
+      }
       console.log('[db] Initialized locked skins');
     }
   } catch (error) {
     console.error('[db] Error initializing locked skins:', error);
   }
-})();
+}
 
-// 7) Очистка старых подарков для корректной работы новой системы
-(function clearOldGifts() {
+async function clearOldGifts() {
   try {
-    // Удаляем все старые подарки с неправильными типами
-    const deletedRows = db.prepare(`
-      DELETE FROM user_gifts 
-      WHERE gift_type IN ('gift_common', 'gift_uncommon', 'gift_rare')
-    `).run();
-    
-    if (deletedRows.changes > 0) {
-      console.log(`[db] Cleared ${deletedRows.changes} old gift records with incorrect types`);
+    const result = await run(
+      `DELETE FROM user_gifts WHERE gift_type IN ('gift_common', 'gift_uncommon', 'gift_rare')`
+    );
+    if (result.rowCount && result.rowCount > 0) {
+      console.log(`[db] Cleared ${result.rowCount} old gift records with incorrect types`);
     }
   } catch (error) {
     console.error('[db] Error clearing old gifts:', error);
   }
-})();
+}
 
-// 7) Подготовленный UPSERT (работает и для новой, и для мигрированной схемы)
-const upsertStmt = db.prepare(`
-INSERT INTO users (
-  twitch_user_id, display_name, login, profile_image_url,
-  access_token, refresh_token, scope, expires_at, updated_at, coins
-) VALUES (
-  @twitch_user_id, @display_name, @login, @profile_image_url,
-  @access_token, @refresh_token, @scope, @expires_at, @updated_at, @coins
-)
-ON CONFLICT(twitch_user_id) DO UPDATE SET
-  display_name=excluded.display_name,
-  login=excluded.login,
-  profile_image_url=excluded.profile_image_url,
-  access_token=excluded.access_token,
-  refresh_token=excluded.refresh_token,
-  scope=excluded.scope,
-  expires_at=excluded.expires_at,
-  updated_at=excluded.updated_at,
-  coins=excluded.coins
-`);
-
-function saveOrUpdateUser(user) {
+async function saveOrUpdateUser(user) {
   const now = Math.floor(Date.now() / 1000);
-  
-  // Сохраняем/обновляем пользователя
-  upsertStmt.run({
-    twitch_user_id: user.twitch_user_id,
-    display_name: user.display_name || null,
-    login: user.login || null,
-    profile_image_url: user.profile_image_url || null,
-    access_token: user.access_token,
-    refresh_token: user.refresh_token || null,
-    scope: Array.isArray(user.scope) ? user.scope.join(' ') : (user.scope || null),
-    expires_at: user.expires_at || null,
-    updated_at: now,
-    coins: user.coins || 0
-  });
-  
-  // Создаем аватар по умолчанию если его еще нет
+  await run(
+    `INSERT INTO users (
+      twitch_user_id, display_name, login, profile_image_url,
+      access_token, refresh_token, scope, expires_at, updated_at, coins, da_username, da_user_id, avatar_timeout_seconds
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, 0), $11, $12, COALESCE($13, 300))
+    ON CONFLICT (twitch_user_id) DO UPDATE SET
+      display_name = EXCLUDED.display_name,
+      login = EXCLUDED.login,
+      profile_image_url = EXCLUDED.profile_image_url,
+      access_token = EXCLUDED.access_token,
+      refresh_token = EXCLUDED.refresh_token,
+      scope = EXCLUDED.scope,
+      expires_at = EXCLUDED.expires_at,
+      updated_at = EXCLUDED.updated_at,
+      coins = EXCLUDED.coins,
+      da_username = EXCLUDED.da_username,
+      da_user_id = EXCLUDED.da_user_id,
+      avatar_timeout_seconds = EXCLUDED.avatar_timeout_seconds`,
+    [
+      user.twitch_user_id,
+      user.display_name || null,
+      user.login || null,
+      user.profile_image_url || null,
+      user.access_token,
+      user.refresh_token || null,
+      Array.isArray(user.scope) ? user.scope.join(' ') : (user.scope || null),
+      user.expires_at || null,
+      now,
+      user.coins || 0,
+      user.da_username || null,
+      user.da_user_id || null,
+      user.avatar_timeout_seconds || null
+    ]
+  );
+
   try {
-    const existingAvatar = db.prepare('SELECT twitch_user_id FROM user_avatars WHERE twitch_user_id = ?').get(user.twitch_user_id);
+    const existingAvatar = await queryOne(
+      'SELECT twitch_user_id FROM user_avatars WHERE twitch_user_id = $1',
+      [user.twitch_user_id]
+    );
     if (!existingAvatar) {
-      db.prepare(`
-        INSERT INTO user_avatars (twitch_user_id, body_skin, face_skin, clothes_type, others_type, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(
-        user.twitch_user_id,
-        'body_skin_1',
-        'face_skin_1',
-        'clothes_type_1',
-        'others_1',
-        now
+      await run(
+        `INSERT INTO user_avatars (twitch_user_id, body_skin, face_skin, clothes_type, others_type, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (twitch_user_id) DO NOTHING`,
+        [
+          user.twitch_user_id,
+          'body_skin_1',
+          'face_skin_1',
+          'clothes_type_1',
+          'others_1',
+          Date.now()
+        ]
       );
       console.log(`[db] Created default avatar for user ${user.twitch_user_id}`);
     }
   } catch (avatarError) {
     console.error(`[db] Error creating avatar for user ${user.twitch_user_id}:`, avatarError.message);
-    // Не прерываем процесс если не удалось создать аватар
   }
-  
-  // Update DonationAlerts cache if available
+
   try {
     const { updateUserInCache } = require('./lib/donationalerts');
-    updateUserInCache(user);
+    if (typeof updateUserInCache === 'function') {
+      updateUserInCache(user);
+    }
   } catch (error) {
-    // Ignore if DonationAlerts module is not available
+    // ignore cache errors
   }
 }
 
-function getUserByTwitchId(twitchUserId) {
-  return db.prepare('SELECT * FROM users WHERE twitch_user_id = ?').get(twitchUserId);
+async function getUserByTwitchId(twitchUserId) {
+  const row = await queryOne('SELECT * FROM users WHERE twitch_user_id = $1', [twitchUserId]);
+  return normalizeUser(row);
 }
 
-function getUserByLogin(login) {
-  return db.prepare('SELECT * FROM users WHERE login = ?').get(login);
+async function getUserByLogin(login) {
+  const row = await queryOne('SELECT * FROM users WHERE login = $1', [login]);
+  return normalizeUser(row);
 }
 
-function getAllUsers() {
-  return db.prepare('SELECT * FROM users').all();
+async function getAllUsers() {
+  const rows = await query('SELECT * FROM users');
+  return rows.map(normalizeUser);
 }
 
-// DonationAlerts connection functions
-function updateUserDAConnection(twitchUserId, daUsername) {
-  const stmt = db.prepare('UPDATE users SET da_username = ?, updated_at = ? WHERE twitch_user_id = ?');
-  const now = Math.floor(Date.now() / 1000);
-  return stmt.run(daUsername, now, twitchUserId);
+function normalizeUser(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    coins: typeof row.coins === 'number' ? row.coins : Number(row.coins || 0),
+    avatar_timeout_seconds: typeof row.avatar_timeout_seconds === 'number'
+      ? row.avatar_timeout_seconds
+      : Number(row.avatar_timeout_seconds || 300)
+  };
 }
 
-function getUserDAConnection(twitchUserId) {
-  const user = db.prepare('SELECT da_username FROM users WHERE twitch_user_id = ?').get(twitchUserId);
-  return user ? user.da_username : null;
-}
-
-function getUsersWithDAConnection() {
-  return db.prepare('SELECT * FROM users WHERE da_username IS NOT NULL').all();
-}
-
-// Функции для работы с токенами DonationAlerts стримеров
-function upsertStreamerDA(creds) {
-  const now = Math.floor(Date.now() / 1000);
-  const stmt = db.prepare(`
-    INSERT INTO streamers (
-      streamer_twitch_id, twitch_login, da_user_id, da_access_token, 
-      da_refresh_token, da_expires_at, status, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(streamer_twitch_id) DO UPDATE SET
-      twitch_login = excluded.twitch_login,
-      da_user_id = excluded.da_user_id,
-      da_access_token = excluded.da_access_token,
-      da_refresh_token = excluded.da_refresh_token,
-      da_expires_at = excluded.da_expires_at,
-      status = excluded.status,
-      updated_at = excluded.updated_at
-  `);
-  
-  return stmt.run(
-    creds.streamer_twitch_id,
-    creds.twitch_login || null,
-    creds.da_user_id,
-    creds.da_access_token,
-    creds.da_refresh_token,
-    creds.da_expires_at,
-    creds.status || 'active',
-    now
+async function saveOrUpdateAvatar(twitchUserId, avatarData) {
+  const now = Date.now();
+  await run(
+    `INSERT INTO user_avatars (twitch_user_id, body_skin, face_skin, clothes_type, others_type, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (twitch_user_id) DO UPDATE SET
+       body_skin = EXCLUDED.body_skin,
+       face_skin = EXCLUDED.face_skin,
+       clothes_type = EXCLUDED.clothes_type,
+       others_type = EXCLUDED.others_type,
+       updated_at = EXCLUDED.updated_at`,
+    [
+      twitchUserId,
+      avatarData.body_skin || 'body_skin_1',
+      avatarData.face_skin || 'face_skin_1',
+      avatarData.clothes_type || 'clothes_type_1',
+      avatarData.others_type || 'others_1',
+      now
+    ]
   );
 }
 
-function getStreamerDA(streamerTwitchId) {
-  return db.prepare('SELECT * FROM streamers WHERE streamer_twitch_id = ?').get(streamerTwitchId);
+async function getAvatarByTwitchId(twitchUserId) {
+  return queryOne('SELECT * FROM user_avatars WHERE twitch_user_id = $1', [twitchUserId]);
 }
 
-function getAllStreamers() {
-  return db.prepare('SELECT * FROM streamers WHERE status = ?').all('active');
+async function addGiftToUser(twitchUserId, giftType, giftId, count = 1) {
+  const now = Date.now();
+  await run(
+    `INSERT INTO user_gifts (twitch_user_id, gift_type, gift_id, count, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $5)
+     ON CONFLICT (twitch_user_id, gift_type, gift_id) DO UPDATE SET
+       count = user_gifts.count + EXCLUDED.count,
+       updated_at = EXCLUDED.updated_at`,
+    [twitchUserId, giftType, giftId, count, now]
+  );
 }
 
-// Функции для распределённых локов DonationAlerts
-function acquirePollLock(streamerTwitchId, lockedBy, ttlSeconds) {
-  const now = Math.floor(Date.now() / 1000);
-  const newExpiry = now + ttlSeconds;
-  const stmt = db.prepare(`
-    INSERT INTO da_poll_locks (streamer_twitch_id, locked_by, locked_until)
-    VALUES (?, ?, ?)
-    ON CONFLICT(streamer_twitch_id) DO UPDATE SET
-      locked_by = excluded.locked_by,
-      locked_until = excluded.locked_until
-    WHERE da_poll_locks.locked_until <= ? OR da_poll_locks.locked_by = ?
-  `);
-
-  const result = stmt.run(streamerTwitchId, lockedBy, newExpiry, now, lockedBy);
-  return result.changes > 0;
+async function getUserGifts(twitchUserId) {
+  const rows = await query(
+    `SELECT twitch_user_id, gift_type, gift_id, count, created_at, updated_at
+     FROM user_gifts WHERE twitch_user_id = $1`,
+    [twitchUserId]
+  );
+  return rows.map(row => ({
+    ...row,
+    count: Number(row.count)
+  }));
 }
 
-function releasePollLock(streamerTwitchId, lockedBy) {
-  const stmt = db.prepare(`
-    UPDATE da_poll_locks
-    SET locked_until = 0, locked_by = NULL
-    WHERE streamer_twitch_id = ? AND locked_by = ?
-  `);
-
-  const result = stmt.run(streamerTwitchId, lockedBy);
-  return result.changes > 0;
-}
-
-// Функции для идемпотентности донатов
-function markDonationProcessed(streamerTwitchId, donationId) {
-  const stmt = db.prepare(`
-    INSERT OR IGNORE INTO donations_processed (streamer_twitch_id, donation_id)
-    VALUES (?, ?)
-  `);
-  return stmt.run(streamerTwitchId, donationId);
-}
-
-function isDonationProcessed(streamerTwitchId, donationId) {
-  const result = db.prepare(`
-    SELECT 1 FROM donations_processed 
-    WHERE streamer_twitch_id = ? AND donation_id = ?
-  `).get(streamerTwitchId, donationId);
-  return !!result;
-}
-
-// Функции для работы с DA пользователей
-function setUserDA(userTwitchId, { da_user_id, da_username }) {
-  const now = Math.floor(Date.now() / 1000);
-  const stmt = db.prepare(`
-    UPDATE users SET da_user_id = ?, da_username = ?, updated_at = ?
-    WHERE twitch_user_id = ?
-  `);
-  return stmt.run(da_user_id, da_username, now, userTwitchId);
-}
-
-function findUserByDAUserId(da_user_id) {
-  return db.prepare('SELECT * FROM users WHERE da_user_id = ?').get(da_user_id);
-}
-
-function findUserByNormalizedLogin(login) {
-  if (!login || typeof login !== 'string') return null;
-  
-  try {
-    // Нормализация логина с дополнительной валидацией
-    const normalized = login.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[_\-]+/g, '_');
-    if (!normalized || normalized.length === 0) return null;
-    
-    // Поиск по нормализованному логину
-    const user = db.prepare('SELECT * FROM users WHERE login = ?').get(normalized);
-    if (user) return user;
-    
-    // Fallback - поиск по display_name
-    return db.prepare('SELECT * FROM users WHERE display_name = ?').get(normalized);
-  } catch (error) {
-    console.error(`[DB] Error finding user by normalized login "${login}":`, error.message);
-    return null;
-  }
-}
-
-// Функции для работы с настройками тайминга аватаров
-function setAvatarTimeoutSeconds(twitchUserId, seconds) {
-  const stmt = db.prepare('UPDATE users SET avatar_timeout_seconds = ?, updated_at = ? WHERE twitch_user_id = ?');
-  const now = Math.floor(Date.now() / 1000);
-  return stmt.run(seconds, now, twitchUserId);
-}
-
-function getAvatarTimeoutSeconds(twitchUserId) {
-  const user = db.prepare('SELECT avatar_timeout_seconds FROM users WHERE twitch_user_id = ?').get(twitchUserId);
-  return user ? user.avatar_timeout_seconds : 300; // Default 5 minutes
-}
-
-// Функции для работы с монетами
-function getUserCoins(twitchUserId) {
-  const user = db.prepare('SELECT coins FROM users WHERE twitch_user_id = ?').get(twitchUserId);
-  return user ? user.coins : 0;
-}
-
-function updateUserCoins(twitchUserId, coins) {
-  const stmt = db.prepare('UPDATE users SET coins = ?, updated_at = ? WHERE twitch_user_id = ?');
-  const now = Math.floor(Date.now() / 1000);
-  return stmt.run(coins, now, twitchUserId);
-}
-
-function addUserCoins(twitchUserId, amount) {
-  const currentCoins = getUserCoins(twitchUserId);
-  const newCoins = Math.max(0, currentCoins + amount);
-  updateUserCoins(twitchUserId, newCoins);
-  return newCoins;
-}
-
-// Функции для работы с заблокированными скинами
-function getLockedSkins() {
-  return db.prepare('SELECT * FROM locked_skins WHERE is_locked = 1').all();
-}
-
-function getUserPurchasedSkins(twitchUserId) {
-  return db.prepare('SELECT skin_type, skin_id FROM user_purchased_skins WHERE twitch_user_id = ?').all(twitchUserId);
-}
-
-function isSkinPurchased(twitchUserId, skinType, skinId) {
-  const purchased = db.prepare('SELECT 1 FROM user_purchased_skins WHERE twitch_user_id = ? AND skin_type = ? AND skin_id = ?').get(twitchUserId, skinType, skinId);
-  return !!purchased;
-}
-
-function purchaseSkin(twitchUserId, skinType, skinId, price) {
-  const currentCoins = getUserCoins(twitchUserId);
-  
-  if (currentCoins < price) {
-    return { success: false, error: 'Недостаточно монет' };
-  }
-  
-  try {
-    // Начинаем транзакцию
-    db.exec('BEGIN TRANSACTION');
-    
-    // Списываем монеты
-    const newCoins = currentCoins - price;
-    updateUserCoins(twitchUserId, newCoins);
-    
-    // Добавляем скин в купленные
-    const insertStmt = db.prepare('INSERT INTO user_purchased_skins (twitch_user_id, skin_type, skin_id) VALUES (?, ?, ?)');
-    insertStmt.run(twitchUserId, skinType, skinId);
-    
-    // Завершаем транзакцию
-    db.exec('COMMIT');
-    
-    return { success: true, newCoins };
-  } catch (error) {
-    db.exec('ROLLBACK');
-    console.error('Error purchasing skin:', error);
-    return { success: false, error: 'Ошибка при покупке скина' };
-  }
-}
-
-function getSkinPrice(skinType, skinId) {
-  const skin = db.prepare('SELECT price FROM locked_skins WHERE skin_type = ? AND skin_id = ?').get(skinType, skinId);
-  return skin ? skin.price : 0;
-}
-
-// Функции для управления ценами скинов
-function getAllSkinsWithPrices() {
-  // Получаем все доступные части аватара
-  const allParts = getAvailableAvatarParts();
-  const lockedSkins = getLockedSkins();
-  
-  // Создаем мапу заблокированных скинов для быстрого поиска
-  const lockedMap = new Map();
-  lockedSkins.forEach(skin => {
-    lockedMap.set(`${skin.skin_type}_${skin.skin_id}`, skin);
-  });
-  
-  // Объединяем все части с информацией о ценах
-  const result = [];
-  Object.keys(allParts).forEach(skinType => {
-    allParts[skinType].forEach(part => {
-      const key = `${skinType}_${part.id}`;
-      const lockedInfo = lockedMap.get(key);
-      
-      result.push({
-        skinType,
-        skinId: part.id,
-        name: part.name,
-        path: part.path,
-        price: lockedInfo ? lockedInfo.price : 0,
-        isLocked: !!lockedInfo,
-        isLockedValue: lockedInfo ? lockedInfo.is_locked : false
-      });
-    });
-  });
-  
-  return result;
-}
-
-function updateSkinPrice(skinType, skinId, price, isLocked = true) {
-  try {
-    // Проверяем, существует ли запись
-    const existing = db.prepare('SELECT id FROM locked_skins WHERE skin_type = ? AND skin_id = ?').get(skinType, skinId);
-    
-    if (existing) {
-      // Обновляем существующую запись
-      const stmt = db.prepare('UPDATE locked_skins SET price = ?, is_locked = ? WHERE skin_type = ? AND skin_id = ?');
-      stmt.run(price, isLocked ? 1 : 0, skinType, skinId);
-    } else {
-      // Создаем новую запись
-      const stmt = db.prepare('INSERT INTO locked_skins (skin_type, skin_id, price, is_locked) VALUES (?, ?, ?, ?)');
-      stmt.run(skinType, skinId, price, isLocked ? 1 : 0);
-    }
-    
-    return { success: true };
-  } catch (error) {
-    console.error('Error updating skin price:', error);
-    return { success: false, error: 'Failed to update skin price' };
-  }
-}
-
-function bulkUpdateSkinPrices(skins) {
-  let updated = 0;
-  const errors = [];
-  
-  try {
-    db.exec('BEGIN TRANSACTION');
-    
-    skins.forEach(skin => {
-      try {
-        const result = updateSkinPrice(skin.skinType, skin.skinId, skin.price, skin.isLocked);
-        if (result.success) {
-          updated++;
-        } else {
-          errors.push(`${skin.skinType}_${skin.skinId}: ${result.error}`);
-        }
-      } catch (error) {
-        errors.push(`${skin.skinType}_${skin.skinId}: ${error.message}`);
-      }
-    });
-    
-    db.exec('COMMIT');
-    
-    return { updated, errors };
-  } catch (error) {
-    db.exec('ROLLBACK');
-    console.error('Error in bulk update:', error);
-    return { updated: 0, errors: [error.message] };
-  }
-}
-
-// Аватар функции
-const upsertAvatarStmt = db.prepare(`
-INSERT INTO user_avatars (twitch_user_id, body_skin, face_skin, clothes_type, others_type, updated_at)
-VALUES (@twitch_user_id, @body_skin, @face_skin, @clothes_type, @others_type, @updated_at)
-ON CONFLICT(twitch_user_id) DO UPDATE SET
-  body_skin=excluded.body_skin,
-  face_skin=excluded.face_skin,
-  clothes_type=excluded.clothes_type,
-  others_type=excluded.others_type,
-  updated_at=excluded.updated_at
-`);
-
-function saveOrUpdateAvatar(twitchUserId, avatarData) {
-  const now = Math.floor(Date.now() / 1000);
-  upsertAvatarStmt.run({
-    twitch_user_id: twitchUserId,
-    body_skin: avatarData.body_skin || 'body_skin_1',
-    face_skin: avatarData.face_skin || 'face_skin_1',
-    clothes_type: avatarData.clothes_type || 'clothes_type_1',
-    others_type: avatarData.others_type || 'others',
-    updated_at: now
-  });
-}
-
-function getAvatarByTwitchId(twitchUserId) {
-  return db.prepare('SELECT * FROM user_avatars WHERE twitch_user_id = ?').get(twitchUserId);
-}
-
-// Gift statistics functions
-function addGiftToUser(twitchUserId, giftType, giftId) {
-  const now = Math.floor(Date.now() / 1000);
-  
-  // Check if gift record exists
-  const existingGift = db.prepare(`
-    SELECT * FROM user_gifts 
-    WHERE twitch_user_id = ? AND gift_type = ? AND gift_id = ?
-  `).get(twitchUserId, giftType, giftId);
-  
-  if (existingGift) {
-    // Update existing gift count
-    db.prepare(`
-      UPDATE user_gifts 
-      SET count = count + 1, updated_at = ?
-      WHERE twitch_user_id = ? AND gift_type = ? AND gift_id = ?
-    `).run(now, twitchUserId, giftType, giftId);
-  } else {
-    // Insert new gift record
-    db.prepare(`
-      INSERT INTO user_gifts (twitch_user_id, gift_type, gift_id, count, created_at, updated_at)
-      VALUES (?, ?, ?, 1, ?, ?)
-    `).run(twitchUserId, giftType, giftId, now, now);
-  }
-}
-
-function getUserGifts(twitchUserId) {
-  return db.prepare(`
-    SELECT gift_type, gift_id, count, created_at, updated_at
-    FROM user_gifts 
-    WHERE twitch_user_id = ?
-    ORDER BY updated_at DESC
-  `).all(twitchUserId);
-}
-
-function getUserGiftStats(twitchUserId) {
-  const stats = db.prepare(`
-    SELECT 
-      gift_type,
-      COUNT(*) as unique_gifts,
-      SUM(count) as total_gifts
-    FROM user_gifts 
-    WHERE twitch_user_id = ?
-    GROUP BY gift_type
-  `).all(twitchUserId);
-  
-  return stats;
+async function getUserGiftStats(twitchUserId) {
+  const rows = await query(
+    `SELECT gift_type, COUNT(*) AS unique_gifts, SUM(count) AS total_gifts
+     FROM user_gifts
+     WHERE twitch_user_id = $1
+     GROUP BY gift_type`,
+    [twitchUserId]
+  );
+  return rows.map(row => ({
+    gift_type: row.gift_type,
+    unique_gifts: Number(row.unique_gifts),
+    total_gifts: Number(row.total_gifts)
+  }));
 }
 
 function getRandomGift() {
@@ -738,7 +463,7 @@ function getRandomGift() {
   const randomType = giftTypes[Math.floor(Math.random() * giftTypes.length)];
   const availableIds = GIFT_IDS[randomType];
   const randomId = availableIds[Math.floor(Math.random() * availableIds.length)];
-  
+
   return {
     type: randomType,
     id: randomId,
@@ -746,7 +471,6 @@ function getRandomGift() {
   };
 }
 
-// Avatar customization functions
 function getAvailableAvatarParts() {
   const partsDir = path.join(__dirname, 'parts');
   const layers = ['body', 'face', 'clothes', 'others'];
@@ -791,7 +515,7 @@ function getAvailableGifts() {
             id: name,
             name: name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
             path: `/parts/${giftType}/${file}`,
-            rarity: rarity
+            rarity
           };
         });
       availableGifts[giftType] = files;
@@ -803,44 +527,42 @@ function getAvailableGifts() {
   return availableGifts;
 }
 
-function updateAvatarPart(twitchUserId, partType, partId) {
+async function updateAvatarPart(twitchUserId, partType, partId) {
   const now = Math.floor(Date.now() / 1000);
-  
-  // Check if avatar exists
-  const existingAvatar = getAvatarByTwitchId(twitchUserId);
+  const existingAvatar = await getAvatarByTwitchId(twitchUserId);
   if (!existingAvatar) {
     return false;
   }
 
-  // Map part types to database fields
   const fieldMap = {
-    'body': 'body_skin',
-    'face': 'face_skin', 
-    'clothes': 'clothes_type',
-    'others': 'others_type'
+    body: 'body_skin',
+    face: 'face_skin',
+    clothes: 'clothes_type',
+    others: 'others_type'
   };
-  
+
   const updateField = fieldMap[partType];
   if (!updateField) {
     return false;
   }
-  
-  db.prepare(`
-    UPDATE user_avatars 
-    SET ${updateField} = ?, updated_at = ?
-    WHERE twitch_user_id = ?
-  `).run(partId, now, twitchUserId);
-  
+
+  await run(
+    `UPDATE user_avatars
+     SET ${updateField} = $1, updated_at = $2
+     WHERE twitch_user_id = $3`,
+    [partId, now, twitchUserId]
+  );
   return true;
 }
 
-// User-streamer relationship functions
-function addUserToStreamer(userTwitchId, streamerTwitchId) {
+async function addUserToStreamer(userTwitchId, streamerTwitchId) {
   try {
-    db.prepare(`
-      INSERT OR IGNORE INTO user_streamers (user_twitch_id, streamer_twitch_id)
-      VALUES (?, ?)
-    `).run(userTwitchId, streamerTwitchId);
+    await run(
+      `INSERT INTO user_streamers (user_twitch_id, streamer_twitch_id)
+       VALUES ($1, $2)
+       ON CONFLICT (user_twitch_id, streamer_twitch_id) DO NOTHING`,
+      [userTwitchId, streamerTwitchId]
+    );
     return true;
   } catch (error) {
     console.error('Error adding user to streamer:', error);
@@ -848,9 +570,10 @@ function addUserToStreamer(userTwitchId, streamerTwitchId) {
   }
 }
 
-function getStreamerUsers(streamerTwitchId, searchQuery = '') {
+async function getStreamerUsers(streamerTwitchId, searchQuery = '') {
+  const params = [streamerTwitchId];
   let sql = `
-    SELECT DISTINCT 
+    SELECT DISTINCT
       u.twitch_user_id,
       u.display_name,
       u.login,
@@ -863,221 +586,342 @@ function getStreamerUsers(streamerTwitchId, searchQuery = '') {
     FROM user_streamers us
     JOIN users u ON us.user_twitch_id = u.twitch_user_id
     LEFT JOIN user_avatars ua ON u.twitch_user_id = ua.twitch_user_id
-    WHERE us.streamer_twitch_id = ?
-  `;
-  
-  const params = [streamerTwitchId];
-  
+    WHERE us.streamer_twitch_id = $1`;
+
   if (searchQuery.trim()) {
-    sql += ` AND (u.display_name LIKE ? OR u.login LIKE ?)`;
+    sql += ' AND (u.display_name ILIKE $2 OR u.login ILIKE $3)';
     const searchPattern = `%${searchQuery.trim()}%`;
     params.push(searchPattern, searchPattern);
   }
-  
-  sql += ` ORDER BY us.created_at DESC`;
-  
-  return db.prepare(sql).all(...params);
+
+  sql += ' ORDER BY us.created_at DESC';
+
+  return query(sql, params);
 }
 
-function getUserAvatarPreview(twitchUserId) {
-  return db.prepare(`
-    SELECT 
-      ua.body_skin,
-      ua.face_skin,
-      ua.clothes_type,
-      ua.others_type,
-      u.display_name,
-      u.login
-    FROM user_avatars ua
-    JOIN users u ON ua.twitch_user_id = u.twitch_user_id
-    WHERE ua.twitch_user_id = ?
-  `).get(twitchUserId);
+async function getUserAvatarPreview(twitchUserId) {
+  return queryOne(
+    `SELECT ua.*, u.display_name, u.profile_image_url
+     FROM user_avatars ua
+     JOIN users u ON ua.twitch_user_id = u.twitch_user_id
+     WHERE ua.twitch_user_id = $1`,
+    [twitchUserId]
+  );
 }
 
-function giveGiftToUser(userTwitchId, giftType, giftId) {
+async function giveGiftToUser(twitchUserId, giftType, giftId, count = 1) {
+  const normalizedType = giftType.startsWith('gift_') ? giftType.replace('gift_', '') : giftType;
+  await addGiftToUser(twitchUserId, normalizedType, giftId, count);
+  return true;
+}
+
+async function getUserCoins(twitchUserId) {
+  const row = await queryOne('SELECT coins FROM users WHERE twitch_user_id = $1', [twitchUserId]);
+  return row ? Number(row.coins) : 0;
+}
+
+async function updateUserCoins(twitchUserId, coins) {
+  await run('UPDATE users SET coins = $1, updated_at = $2 WHERE twitch_user_id = $3', [coins, Math.floor(Date.now() / 1000), twitchUserId]);
+}
+
+async function addUserCoins(twitchUserId, amount) {
+  const currentCoins = await getUserCoins(twitchUserId);
+  const newCoins = Math.max(0, currentCoins + amount);
+  await updateUserCoins(twitchUserId, newCoins);
+  return newCoins;
+}
+
+async function getLockedSkins() {
+  return query('SELECT * FROM locked_skins WHERE is_locked = TRUE');
+}
+
+async function getUserPurchasedSkins(twitchUserId) {
+  return query('SELECT skin_type, skin_id FROM user_purchased_skins WHERE twitch_user_id = $1', [twitchUserId]);
+}
+
+async function isSkinPurchased(twitchUserId, skinType, skinId) {
+  const row = await queryOne(
+    'SELECT 1 FROM user_purchased_skins WHERE twitch_user_id = $1 AND skin_type = $2 AND skin_id = $3',
+    [twitchUserId, skinType, skinId]
+  );
+  return !!row;
+}
+
+async function purchaseSkin(twitchUserId, skinType, skinId, price) {
+  const currentCoins = await getUserCoins(twitchUserId);
+  if (currentCoins < price) {
+    return { success: false, error: 'Недостаточно монет' };
+  }
+
   try {
-    const now = Math.floor(Date.now() / 1000);
-    
-    // Convert gift_common -> common, gift_uncommon -> uncommon, gift_rare -> rare
-    const normalizedGiftType = giftType.replace('gift_', '');
-    
-    // Check if gift record exists
-    const existingGift = db.prepare(`
-      SELECT * FROM user_gifts 
-      WHERE twitch_user_id = ? AND gift_type = ? AND gift_id = ?
-    `).get(userTwitchId, normalizedGiftType, giftId);
-    
-    if (existingGift) {
-      // Update existing gift count
-      db.prepare(`
-        UPDATE user_gifts 
-        SET count = count + 1, updated_at = ?
-        WHERE twitch_user_id = ? AND gift_type = ? AND gift_id = ?
-      `).run(now, userTwitchId, normalizedGiftType, giftId);
-    } else {
-      // Insert new gift record
-      db.prepare(`
-        INSERT INTO user_gifts (twitch_user_id, gift_type, gift_id, count, created_at, updated_at)
-        VALUES (?, ?, ?, 1, ?, ?)
-      `).run(userTwitchId, normalizedGiftType, giftId, now, now);
-    }
-    
-    return true;
+    await withClient(async client => {
+      await client.query('BEGIN');
+      try {
+        const newCoins = currentCoins - price;
+        await client.query('UPDATE users SET coins = $1 WHERE twitch_user_id = $2', [newCoins, twitchUserId]);
+        await client.query(
+          `INSERT INTO user_purchased_skins (twitch_user_id, skin_type, skin_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (twitch_user_id, skin_type, skin_id) DO NOTHING`,
+          [twitchUserId, skinType, skinId]
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      }
+    });
+    return { success: true, newCoins: currentCoins - price };
   } catch (error) {
-    console.error('Error giving gift to user:', error);
-    return false;
+    console.error('Error purchasing skin:', error);
+    return { success: false, error: 'Ошибка при покупке скина' };
   }
 }
 
-// Функции для работы с настройками игр
-function setGameSettings(streamerId, settings) {
+async function getSkinPrice(skinType, skinId) {
+  const row = await queryOne('SELECT price FROM locked_skins WHERE skin_type = $1 AND skin_id = $2', [skinType, skinId]);
+  return row ? Number(row.price) : 0;
+}
+
+async function getAllSkinsWithPrices() {
+  const allParts = getAvailableAvatarParts();
+  const lockedSkins = await getLockedSkins();
+  const lockedMap = new Map();
+  lockedSkins.forEach(skin => {
+    lockedMap.set(`${skin.skin_type}_${skin.skin_id}`, skin);
+  });
+
+  const result = [];
+  Object.keys(allParts).forEach(skinType => {
+    allParts[skinType].forEach(part => {
+      const key = `${skinType}_${part.id}`;
+      const lockedInfo = lockedMap.get(key);
+      result.push({
+        skinType,
+        skinId: part.id,
+        name: part.name,
+        path: part.path,
+        price: lockedInfo ? Number(lockedInfo.price) : 0,
+        isLocked: !!lockedInfo,
+        isLockedValue: lockedInfo ? lockedInfo.is_locked : false
+      });
+    });
+  });
+
+  return result;
+}
+
+async function updateSkinPrice(skinType, skinId, price, isLocked = true) {
   try {
-    const now = Date.now();
-    
-    // Проверяем, существует ли запись для этого стримера
-    const existing = db.prepare(`
-      SELECT streamer_id FROM streamer_game_settings WHERE streamer_id = ?
-    `).get(streamerId);
-    
-    if (existing) {
-      // Обновляем существующую запись
-      db.prepare(`
-        UPDATE streamer_game_settings 
-        SET min_participants = ?, max_participants = ?, registration_time = ?, updated_at = ?
-        WHERE streamer_id = ?
-      `).run(
-        settings.minParticipants,
-        settings.maxParticipants,
-        settings.registrationTime,
-        now,
-        streamerId
-      );
-    } else {
-      // Создаем новую запись
-      db.prepare(`
-        INSERT INTO streamer_game_settings 
-        (streamer_id, min_participants, max_participants, registration_time, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(
-        streamerId,
-        settings.minParticipants,
-        settings.maxParticipants,
-        settings.registrationTime,
-        now,
-        now
-      );
-    }
-    
-    return true;
+    await run(
+      `INSERT INTO locked_skins (skin_type, skin_id, price, is_locked)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (skin_type, skin_id) DO UPDATE SET
+         price = EXCLUDED.price,
+         is_locked = EXCLUDED.is_locked`,
+      [skinType, skinId, price, isLocked]
+    );
+    return { success: true };
   } catch (error) {
-    console.error('Error setting game settings:', error);
-    return false;
+    console.error('Error updating skin price:', error);
+    return { success: false, error: 'Failed to update skin price' };
   }
 }
 
-function getGameSettings(streamerId) {
+async function bulkUpdateSkinPrices(skins) {
+  let updated = 0;
+  const errors = [];
+
   try {
-    const settings = db.prepare(`
-      SELECT min_participants, max_participants, registration_time 
-      FROM streamer_game_settings 
-      WHERE streamer_id = ?
-    `).get(streamerId);
-    
-    if (settings) {
-      return {
-        minParticipants: settings.min_participants,
-        maxParticipants: settings.max_participants,
-        registrationTime: settings.registration_time
-      };
-    } else {
-      // Возвращаем значения по умолчанию
-      return {
-        minParticipants: 1,
-        maxParticipants: 10,
-        registrationTime: 10
-      };
-    }
-  } catch (error) {
-    console.error('Error getting game settings:', error);
-    return {
-      minParticipants: 1,
-      maxParticipants: 10,
-      registrationTime: 10
-    };
+    await withClient(async client => {
+      await client.query('BEGIN');
+      try {
+        for (const skin of skins) {
+          try {
+            await client.query(
+              `INSERT INTO locked_skins (skin_type, skin_id, price, is_locked)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (skin_type, skin_id) DO UPDATE SET
+                 price = EXCLUDED.price,
+                 is_locked = EXCLUDED.is_locked`,
+              [skin.skinType, skin.skinId, skin.price, skin.isLocked]
+            );
+            updated++;
+          } catch (error) {
+            errors.push({ skin, error: error.message });
+          }
+        }
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      }
+    });
+  } catch (transactionError) {
+    errors.push({ error: transactionError.message });
   }
+
+  return { updated, errors };
 }
 
-// Функции для работы с подарками
-function getGiftInfo(giftType, giftId) {
-  try {
-    console.log(`[DB] getGiftInfo called with: giftType=${giftType}, giftId=${giftId}`);
-    
-    const gift = db.prepare(`
-      SELECT name, description FROM gifts 
-      WHERE gift_type = ? AND gift_id = ?
-    `).get(giftType, giftId);
-    
-    console.log(`[DB] Found gift:`, gift);
-    
-    if (gift) {
-      return {
-        name: gift.name,
-        description: gift.description
-      };
-    } else {
-      // Возвращаем дефолтное название если подарок не найден
-      console.log(`[DB] Gift not found, returning default name`);
-      return {
-        name: `Подарок ${giftType} #${giftId}`,
-        description: `Подарок типа ${giftType}`
-      };
-    }
-  } catch (error) {
-    console.error('Error getting gift info:', error);
-    return {
-      name: `Подарок ${giftType} #${giftId}`,
-      description: `Подарок типа ${giftType}`
-    };
-  }
+async function updateUserDAConnection(twitchUserId, daUsername) {
+  const now = Math.floor(Date.now() / 1000);
+  return run('UPDATE users SET da_username = $1, updated_at = $2 WHERE twitch_user_id = $3', [daUsername, now, twitchUserId]);
 }
 
-function getAllGifts() {
-  try {
-    const gifts = db.prepare(`
-      SELECT id, gift_type, gift_id, name, description 
-      FROM gifts 
-      ORDER BY gift_type, gift_id
-    `).all();
-    
-    return gifts;
-  } catch (error) {
-    console.error('Error getting all gifts:', error);
-    return [];
-  }
+async function getUserDAConnection(twitchUserId) {
+  const row = await queryOne('SELECT da_username FROM users WHERE twitch_user_id = $1', [twitchUserId]);
+  return row ? row.da_username : null;
 }
 
-function updateGiftInfo(giftType, giftId, name, description) {
-  try {
-    const now = Date.now();
-    const giftIdStr = `gift_${giftType}_${giftId}`;
+async function getUsersWithDAConnection() {
+  const rows = await query('SELECT * FROM users WHERE da_username IS NOT NULL');
+  return rows.map(normalizeUser);
+}
 
-    const existing = db.prepare(`SELECT id FROM gifts WHERE id = ?`).get(giftIdStr);
-    
-    if (existing) {
-      // Обновляем существующий подарок
-      db.prepare(`
-        UPDATE gifts 
-        SET name = ?, description = ?, updated_at = ?
-        WHERE id = ?
-      `).run(name, description, now, giftIdStr);
-    } else {
-      // Создаем новый подарок
-      db.prepare(`
-        INSERT INTO gifts (id, gift_type, gift_id, name, description, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(giftIdStr, giftType, giftId, name, description, now, now);
-    }
-    
+async function upsertStreamerDA(creds) {
+  const now = Math.floor(Date.now() / 1000);
+  await run(
+    `INSERT INTO streamers (
+      streamer_twitch_id, twitch_login, da_user_id, da_access_token,
+      da_refresh_token, da_expires_at, status, updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    ON CONFLICT (streamer_twitch_id) DO UPDATE SET
+      twitch_login = EXCLUDED.twitch_login,
+      da_user_id = EXCLUDED.da_user_id,
+      da_access_token = EXCLUDED.da_access_token,
+      da_refresh_token = EXCLUDED.da_refresh_token,
+      da_expires_at = EXCLUDED.da_expires_at,
+      status = EXCLUDED.status,
+      updated_at = EXCLUDED.updated_at`,
+    [
+      creds.streamer_twitch_id,
+      creds.twitch_login || null,
+      creds.da_user_id,
+      creds.da_access_token,
+      creds.da_refresh_token,
+      creds.da_expires_at,
+      creds.status || 'active',
+      now
+    ]
+  );
+}
+
+async function getStreamerDA(streamerTwitchId) {
+  return queryOne('SELECT * FROM streamers WHERE streamer_twitch_id = $1', [streamerTwitchId]);
+}
+
+async function getAllStreamers() {
+  return query('SELECT * FROM streamers WHERE status = $1', ['active']);
+}
+
+async function acquirePollLock(streamerTwitchId, lockedBy, ttlSeconds) {
+  const now = Math.floor(Date.now() / 1000);
+  const newExpiry = now + ttlSeconds;
+  const result = await run(
+    `INSERT INTO da_poll_locks (streamer_twitch_id, locked_by, locked_until)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (streamer_twitch_id) DO UPDATE SET
+       locked_by = EXCLUDED.locked_by,
+       locked_until = EXCLUDED.locked_until
+     WHERE da_poll_locks.locked_until <= $4 OR da_poll_locks.locked_by = $5`,
+    [streamerTwitchId, lockedBy, newExpiry, now, lockedBy]
+  );
+  return result.rowCount > 0;
+}
+
+async function releasePollLock(streamerTwitchId, lockedBy) {
+  const result = await run(
+    `UPDATE da_poll_locks
+     SET locked_until = 0, locked_by = NULL
+     WHERE streamer_twitch_id = $1 AND locked_by = $2`,
+    [streamerTwitchId, lockedBy]
+  );
+  return result.rowCount > 0;
+}
+
+async function markDonationProcessed(streamerTwitchId, donationId) {
+  await run(
+    `INSERT INTO donations_processed (streamer_twitch_id, donation_id)
+     VALUES ($1, $2)
+     ON CONFLICT (streamer_twitch_id, donation_id) DO NOTHING`,
+    [streamerTwitchId, donationId]
+  );
+}
+
+async function isDonationProcessed(streamerTwitchId, donationId) {
+  const row = await queryOne(
+    'SELECT 1 FROM donations_processed WHERE streamer_twitch_id = $1 AND donation_id = $2',
+    [streamerTwitchId, donationId]
+  );
+  return !!row;
+}
+
+async function setUserDA(twitchUserId, daUserId) {
+  await run('UPDATE users SET da_user_id = $1 WHERE twitch_user_id = $2', [daUserId, twitchUserId]);
+}
+
+async function findUserByDAUserId(daUserId) {
+  return queryOne('SELECT * FROM users WHERE da_user_id = $1', [daUserId]);
+}
+
+async function findUserByNormalizedLogin(login) {
+  const normalizedLogin = login.trim().toLowerCase();
+  return queryOne('SELECT * FROM users WHERE LOWER(login) = $1', [normalizedLogin]);
+}
+
+async function setAvatarTimeoutSeconds(twitchUserId, seconds) {
+  await run('UPDATE users SET avatar_timeout_seconds = $1 WHERE twitch_user_id = $2', [seconds, twitchUserId]);
+}
+
+async function getAvatarTimeoutSeconds(twitchUserId) {
+  const row = await queryOne('SELECT avatar_timeout_seconds FROM users WHERE twitch_user_id = $1', [twitchUserId]);
+  return row ? Number(row.avatar_timeout_seconds) : 300;
+}
+
+async function setGameSettings(streamerId, settings) {
+  const now = Math.floor(Date.now() / 1000);
+  await run(
+    `INSERT INTO streamer_game_settings (
+      streamer_id, min_participants, max_participants, registration_time, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $5)
+     ON CONFLICT (streamer_id) DO UPDATE SET
+       min_participants = EXCLUDED.min_participants,
+       max_participants = EXCLUDED.max_participants,
+       registration_time = EXCLUDED.registration_time,
+       updated_at = EXCLUDED.updated_at`,
+    [
+      streamerId,
+      settings.min_participants,
+      settings.max_participants,
+      settings.registration_time,
+      now
+    ]
+  );
+}
+
+async function getGameSettings(streamerId) {
+  return queryOne('SELECT * FROM streamer_game_settings WHERE streamer_id = $1', [streamerId]);
+}
+
+async function getGiftInfo(giftType, giftId) {
+  return queryOne('SELECT * FROM gifts WHERE gift_type = $1 AND gift_id = $2', [giftType, giftId]);
+}
+
+async function getAllGifts() {
+  return query('SELECT * FROM gifts');
+}
+
+async function updateGiftInfo(giftId, data) {
+  try {
+    await run(
+      `UPDATE gifts SET
+         name = COALESCE($2, name),
+         description = COALESCE($3, description),
+         updated_at = $4
+       WHERE id = $1`,
+      [giftId, data.name || null, data.description || null, Date.now()]
+    );
     return true;
   } catch (error) {
     console.error('Error updating gift info:', error);
@@ -1085,22 +929,18 @@ function updateGiftInfo(giftType, giftId, name, description) {
   }
 }
 
-function getStreamerOverlayState(streamerId) {
+async function getStreamerOverlayState(streamerId) {
   if (!streamerId) {
     return null;
   }
-
   try {
-    const row = db.prepare(`
-      SELECT state_json
-      FROM streamer_overlay_state
-      WHERE streamer_id = ?
-    `).get(streamerId);
-
+    const row = await queryOne(
+      'SELECT state_json FROM streamer_overlay_state WHERE streamer_id = $1',
+      [streamerId]
+    );
     if (!row || !row.state_json) {
       return null;
     }
-
     return JSON.parse(row.state_json);
   } catch (error) {
     console.error('Error loading overlay state:', error);
@@ -1108,22 +948,21 @@ function getStreamerOverlayState(streamerId) {
   }
 }
 
-function setStreamerOverlayState(streamerId, state) {
+async function setStreamerOverlayState(streamerId, state) {
   if (!streamerId) {
     throw new Error('streamerId is required to save overlay state');
   }
-
   try {
     const payload = JSON.stringify(state || {});
     const now = Date.now();
-
-    db.prepare(`
-      INSERT INTO streamer_overlay_state (streamer_id, state_json, updated_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(streamer_id)
-      DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at
-    `).run(streamerId, payload, now);
-
+    await run(
+      `INSERT INTO streamer_overlay_state (streamer_id, state_json, updated_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (streamer_id) DO UPDATE SET
+         state_json = EXCLUDED.state_json,
+         updated_at = EXCLUDED.updated_at`,
+      [streamerId, payload, now]
+    );
     return true;
   } catch (error) {
     console.error('Error saving overlay state:', error);
@@ -1184,5 +1023,5 @@ module.exports = {
   setStreamerOverlayState,
   GIFT_TYPES,
   GIFT_IDS,
-  db
+  pool
 };

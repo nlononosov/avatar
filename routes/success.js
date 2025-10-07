@@ -1,27 +1,27 @@
 const { getUserByTwitchId, getAvatarByTwitchId } = require('../db');
 
 function registerSuccessRoute(app) {
-  app.get('/success', (req, res) => {
+  app.get('/success', async (req, res) => {
     const uid = req.cookies.uid;
     let profile = null;
-    if (uid) profile = getUserByTwitchId(String(uid));
+    if (uid) profile = await getUserByTwitchId(String(uid));
 
     const name = profile?.display_name || profile?.login || '';
     const avatar = profile?.profile_image_url || '';
     
     // Get user's avatar data
-    let avatarData = uid ? getAvatarByTwitchId(String(uid)) : null;
+    let avatarData = uid ? await getAvatarByTwitchId(String(uid)) : null;
     // Создаем аватар по умолчанию если его нет И пользователь существует в БД
     if (uid && profile && !avatarData) {
       const { saveOrUpdateAvatar } = require('../db');
       try {
-        saveOrUpdateAvatar(String(uid), {
+        await saveOrUpdateAvatar(String(uid), {
           body_skin: 'body_skin_1',
           face_skin: 'face_skin_1',
           clothes_type: 'clothes_type_1',
           others_type: 'others_1'
         });
-        avatarData = getAvatarByTwitchId(String(uid));
+        avatarData = await getAvatarByTwitchId(String(uid));
       } catch (error) {
         console.error('[success] Error creating avatar:', error);
       }

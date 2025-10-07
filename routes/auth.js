@@ -9,15 +9,15 @@ function registerAuthRoutes(app) {
     res.sendFile(path.join(__dirname, '..', 'index.html'));
   });
 
-  app.get('/auth/status', (req, res) => {
+  app.get('/auth/status', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) {
       return res.json({ authenticated: false });
     }
-    
+
     // Проверяем что пользователь существует в БД
     const { getUserByTwitchId } = require('../db');
-    const user = getUserByTwitchId(String(uid));
+    const user = await getUserByTwitchId(String(uid));
     
     if (!user) {
       // Удаляем невалидную куку
@@ -117,7 +117,7 @@ function registerAuthRoutes(app) {
       
       // Сохраняем пользователя (аватар создается автоматически в saveOrUpdateUser)
       try {
-        saveOrUpdateUser({
+        await saveOrUpdateUser({
           twitch_user_id: twitchUserId,
           display_name: user.display_name || user.login,
           login: user.login,

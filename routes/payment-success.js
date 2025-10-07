@@ -47,13 +47,13 @@ function registerPaymentSuccessRoute(app) {
         // Проверяем, что платеж еще не был обработан
         if (!isPaymentProcessed(payment_id)) {
           // Начисляем монеты
-          const newCoins = addUserCoins(userId, amount);
+          const newCoins = await addUserCoins(userId, amount);
           
           // Отмечаем платеж как обработанный
           markPaymentProcessed(payment_id);
           
           // Получаем информацию о пользователе
-          const user = getUserByTwitchId(userId);
+          const user = await getUserByTwitchId(userId);
           const displayName = user ? user.display_name : 'Пользователь';
           
           res.send(`

@@ -13,9 +13,9 @@ const STREAMER_ID = (() => {
 const { state: overlayState, touch: touchOverlayState, flush: flushOverlayState } = createOverlayState(STREAMER_ID);
 
 // Помощник для отправки событий в канал стримера
-function emitOverlay(event, payload, channel) {
+async function emitOverlay(event, payload, channel) {
   logLine(`[debug] emitOverlay: event="${event}", payload=`, payload, `channel="${channel}", botForUser="${botForUser}"`);
-  
+
   // Оставляем обратную совместимость (глобальный), но главное — в канал стримера
   try { emit(event, payload); } catch {}
   let streamerId = botForUser;
@@ -24,9 +24,11 @@ function emitOverlay(event, payload, channel) {
     const login = String(channel).replace(/^#/, '');
     try {
       const { getUserByLogin } = require('../../db'); // добавь экспорт, если его нет
-      const s = getUserByLogin(login);
+      const s = await getUserByLogin(login);
       if (s && s.twitch_user_id) streamerId = s.twitch_user_id;
-    } catch {}
+    } catch (error) {
+      logLine(`[debug] emitOverlay: failed to map login ${login}: ${error.message}`);
+    }
   }
   
   logLine(`[debug] emitOverlay: final streamerId="${streamerId}"`);
@@ -48,6 +50,7 @@ function normalizeChannel(ch) {
 let tmiClient = null;
 let botForUser = null;
 let botReady = false; // Track if bot is fully connected and ready
+let botChannelCached = null;
 const activeAvatars = overlayState.activeAvatars; // Track active avatar user IDs
 const avatarLastActivity = overlayState.avatarLastActivity; // Track last activity time for each avatar
 const avatarStates = overlayState.avatarStates; // Track avatar states (normal, tired)
@@ -77,16 +80,22 @@ function startAvatarTimeoutChecker() {
   
   // Проверяем чаще: раз в секунду, либо динамически от таймаута
   const period = Math.max(1000, Math.min(10000, Math.floor(avatarTimeoutSeconds * 1000 / 4)));
-  avatarTimeoutInterval = setInterval(checkInactiveAvatars, period);
+  avatarTimeoutInterval = setInterval(() => {
+    checkInactiveAvatars().catch(error => {
+      logLine(`[bot] checkInactiveAvatars interval error: ${error.message}`);
+    });
+  }, period);
   
   // Мгновенно проверить один раз при старте
-  checkInactiveAvatars();
+  checkInactiveAvatars().catch(error => {
+    logLine(`[bot] checkInactiveAvatars initial run error: ${error.message}`);
+  });
   
   logLine(`[bot] Started avatar timeout checker (timeout=${avatarTimeoutSeconds}s, period=${period}ms)`);
 }
 
 // Функция для проверки и удаления неактивных аватаров
-function checkInactiveAvatars() {
+async function checkInactiveAvatars() {
   const now = Date.now();
   let stateChanged = false;
 
@@ -95,7 +104,7 @@ function checkInactiveAvatars() {
   try {
     if (botForUser) {
       const { getAvatarTimeoutSeconds } = require('../../db');
-      const dbTimeout = getAvatarTimeoutSeconds(botForUser);
+      const dbTimeout = await getAvatarTimeoutSeconds(botForUser);
       if (dbTimeout) {
         currentTimeoutSeconds = dbTimeout;
         // Обновляем глобальную переменную для консистентности
@@ -231,7 +240,7 @@ async function refreshToken(profile) {
     const expiresAt = tokenData.expires_in ? Math.floor(Date.now() / 1000) + Number(tokenData.expires_in) : null;
 
     // Update user with new tokens
-    saveOrUpdateUser({
+    await saveOrUpdateUser({
       twitch_user_id: profile.twitch_user_id,
       display_name: profile.display_name,
       login: profile.login,
@@ -255,7 +264,7 @@ async function refreshToken(profile) {
 }
 
 async function ensureBotFor(uid) {
-  let profile = getUserByTwitchId(uid);
+  let profile = await getUserByTwitchId(uid);
   if (!profile) throw new Error('User not found in DB');
 
   // Check if token is expired and refresh if needed
@@ -273,12 +282,13 @@ async function ensureBotFor(uid) {
     return { profile, client: tmiClient };
   }
 
-  if (tmiClient) { 
+  if (tmiClient) {
     logLine(`[bot] Disconnecting previous client for user ${botForUser}`);
-    try { await tmiClient.disconnect(); } catch(_) {} 
-    tmiClient = null; 
+    try { await tmiClient.disconnect(); } catch(_) {}
+    tmiClient = null;
     botForUser = null;
     botReady = false;
+    botChannelCached = null;
   }
 
   const client = new tmi.Client({
@@ -288,14 +298,16 @@ async function ensureBotFor(uid) {
     channels: [ profile.login ]
   });
 
-  client.on('connected', (addr, port) => {
+  client.on('connected', async (addr, port) => {
     logLine(`[bot] connected to ${addr}:${port} → #${profile.login}`);
     botReady = true; // Bot is ready to process commands
+    botForUser = uid;
+    botChannelCached = normalizeChannel(profile.login);
     
     // Загружаем настройки тайминга из БД
     try {
       const { getAvatarTimeoutSeconds } = require('../../db');
-      const dbTimeout = getAvatarTimeoutSeconds(uid);
+      const dbTimeout = await getAvatarTimeoutSeconds(uid);
       if (dbTimeout && dbTimeout !== avatarTimeoutSeconds) {
         avatarTimeoutSeconds = dbTimeout;
         logLine(`[bot] Loaded avatar timeout from DB: ${dbTimeout} seconds`);
@@ -325,7 +337,7 @@ async function ensureBotFor(uid) {
       throw new Error('Login authentication failed');
     }
   });
-  client.on('message', (channel, tags, message, self) => {
+  client.on('message', async (channel, tags, message, self) => {
     logLine(`[chat] ${channel} ${tags['display-name'] || tags.username}: ${message}`);
     logLine(`[bot] Client object in message handler:`, typeof client, client ? 'exists' : 'null');
     if (self) return;
@@ -360,7 +372,7 @@ async function ensureBotFor(uid) {
       }
       
       // Ensure user exists in database first
-      let user = getUserByTwitchId(userId);
+      let user = await getUserByTwitchId(userId);
       if (!user) {
         // Create user record for chat user
         const userData = {
@@ -373,12 +385,12 @@ async function ensureBotFor(uid) {
           scope: null,
           expires_at: null
         };
-        saveOrUpdateUser(userData);
+        await saveOrUpdateUser(userData);
         logLine(`[bot] Created user record for ${displayName} (${userId})`);
       }
       
       // Load or create default avatar
-      let avatarData = getAvatarByTwitchId(userId);
+      let avatarData = await getAvatarByTwitchId(userId);
       if (!avatarData) {
         try {
           // Create default avatar for new user
@@ -388,7 +400,7 @@ async function ensureBotFor(uid) {
             clothes_type: 'clothes_type_1',
             others_type: 'others_1'
           };
-          saveOrUpdateAvatar(userId, avatarData);
+          await saveOrUpdateAvatar(userId, avatarData);
           logLine(`[bot] Created avatar for ${displayName} (${userId})`);
         } catch (error) {
           logLine(`[bot] Error creating avatar for ${displayName}: ${error.message}`);
@@ -405,7 +417,7 @@ async function ensureBotFor(uid) {
       // Add user to streamer's chat list
       if (botForUser) {
         try {
-          const success = addUserToStreamer(userId, botForUser);
+          const success = await addUserToStreamer(userId, botForUser);
           logLine(`[bot] Added user ${userId} to streamer ${botForUser}: ${success ? 'success' : 'failed'}`);
         } catch (error) {
           logLine(`[bot] Error adding user to streamer: ${error.message}`);
@@ -555,7 +567,7 @@ async function ensureBotFor(uid) {
 
     // Если пользователь не активен в памяти — попробуем «лениво» восстановить
     if (!activeAvatars.has(userId)) {
-      const avatarData = getAvatarByTwitchId(userId);
+      const avatarData = await getAvatarByTwitchId(userId);
       if (avatarData) {
         // вернуть в активные и сразу же заспавнить на оверлее
         addActiveAvatar(userId);
@@ -961,20 +973,13 @@ function getBotChannel() {
     logLine(`[bot] getBotChannel: no botForUser, returning null`);
     return null;
   }
-  
-  // botForUser is twitch_user_id, we need to get the login
-  // For now, we'll use a simple approach - get the login from the profile
-  // This is a temporary fix - ideally we should store the login separately
-  const { getUserByTwitchId } = require('../../db');
-  const profile = getUserByTwitchId(botForUser);
-  logLine(`[bot] getBotChannel: profile=${profile ? 'found' : 'not found'}, login=${profile?.login}`);
-  if (profile && profile.login) {
-    const channel = normalizeChannel(profile.login);
-    logLine(`[bot] getBotChannel: returning channel=${channel}`);
-    return channel;
+
+  if (botChannelCached) {
+    logLine(`[bot] getBotChannel: returning cached channel=${botChannelCached}`);
+    return botChannelCached;
   }
-  
-  logLine(`[bot] getBotChannel: no profile or login, returning null`);
+
+  logLine(`[bot] getBotChannel: channel cache empty`);
   return null;
 }
 
