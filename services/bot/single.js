@@ -1,7 +1,16 @@
 const tmi = require('tmi.js');
-const { logLine } = require('../lib/logger');
-const { getUserByTwitchId, saveOrUpdateAvatar, getAvatarByTwitchId, saveOrUpdateUser, addUserToStreamer } = require('../db');
-const { emit, emitToStreamer, getSubscriberCount, getStreamerSubscriberCount } = require('../lib/bus');
+const { logLine } = require('../../lib/logger');
+const { getUserByTwitchId, saveOrUpdateAvatar, getAvatarByTwitchId, saveOrUpdateUser, addUserToStreamer } = require('../../db');
+const { emit, emitToStreamer, getSubscriberCount, getStreamerSubscriberCount } = require('../../lib/bus');
+const { createOverlayState } = require('../state/overlay');
+
+const STREAMER_ID = (() => {
+  const marker = __filename.indexOf('?uid=');
+  if (marker === -1) return null;
+  return __filename.slice(marker + 5);
+})();
+
+const { state: overlayState, touch: touchOverlayState, flush: flushOverlayState } = createOverlayState(STREAMER_ID);
 
 // Помощник для отправки событий в канал стримера
 function emitOverlay(event, payload, channel) {
@@ -14,7 +23,7 @@ function emitOverlay(event, payload, channel) {
     // channel вида "#login" → достаём логин и маппим на twitch_user_id
     const login = String(channel).replace(/^#/, '');
     try {
-      const { getUserByLogin } = require('../db'); // добавь экспорт, если его нет
+      const { getUserByLogin } = require('../../db'); // добавь экспорт, если его нет
       const s = getUserByLogin(login);
       if (s && s.twitch_user_id) streamerId = s.twitch_user_id;
     } catch {}
@@ -29,7 +38,7 @@ function emitOverlay(event, payload, channel) {
     logLine(`[debug] emitOverlay: no streamerId, event not sent to streamer`);
   }
 }
-const { CLIENT_ID, CLIENT_SECRET } = require('../lib/config');
+const { CLIENT_ID, CLIENT_SECRET } = require('../../lib/config');
 
 function normalizeChannel(ch) {
   if (!ch) return ch;
@@ -39,16 +48,17 @@ function normalizeChannel(ch) {
 let tmiClient = null;
 let botForUser = null;
 let botReady = false; // Track if bot is fully connected and ready
-const activeAvatars = new Set(); // Track active avatar user IDs
-const avatarLastActivity = new Map(); // Track last activity time for each avatar
-const avatarStates = new Map(); // Track avatar states (normal, tired)
-let avatarTimeoutSeconds = 300; // Default timeout for inactive avatars (5 minutes)
+const activeAvatars = overlayState.activeAvatars; // Track active avatar user IDs
+const avatarLastActivity = overlayState.avatarLastActivity; // Track last activity time for each avatar
+const avatarStates = overlayState.avatarStates; // Track avatar states (normal, tired)
+let avatarTimeoutSeconds = overlayState.avatarTimeoutSeconds || 300; // Default timeout for inactive avatars (5 minutes)
 let avatarTimeoutInterval = null; // Interval for checking inactive avatars
 
 // Функция для обновления тайминга удаления аватаров
 function setAvatarTimeoutSeconds(seconds) {
   const oldTimeout = avatarTimeoutSeconds;
   avatarTimeoutSeconds = seconds;
+  overlayState.avatarTimeoutSeconds = avatarTimeoutSeconds;
   logLine(`[bot] Avatar timeout updated from ${oldTimeout}s to ${seconds}s`);
   
   // Перезапускаем интервал с новым таймингом
@@ -56,6 +66,7 @@ function setAvatarTimeoutSeconds(seconds) {
     clearInterval(avatarTimeoutInterval);
   }
   startAvatarTimeoutChecker();
+  touchOverlayState();
 }
 
 // Функция для запуска проверки неактивных аватаров
@@ -77,18 +88,21 @@ function startAvatarTimeoutChecker() {
 // Функция для проверки и удаления неактивных аватаров
 function checkInactiveAvatars() {
   const now = Date.now();
-  
+  let stateChanged = false;
+
   // Загружаем актуальные настройки из БД для текущего стримера
   let currentTimeoutSeconds = avatarTimeoutSeconds; // Fallback на глобальную переменную
   try {
     if (botForUser) {
-      const { getAvatarTimeoutSeconds } = require('../db');
+      const { getAvatarTimeoutSeconds } = require('../../db');
       const dbTimeout = getAvatarTimeoutSeconds(botForUser);
       if (dbTimeout) {
         currentTimeoutSeconds = dbTimeout;
         // Обновляем глобальную переменную для консистентности
         if (dbTimeout !== avatarTimeoutSeconds) {
           avatarTimeoutSeconds = dbTimeout;
+          overlayState.avatarTimeoutSeconds = avatarTimeoutSeconds;
+          stateChanged = true;
         }
       }
     }
@@ -125,11 +139,12 @@ function checkInactiveAvatars() {
     
     for (const userId of tiredUsers) {
       avatarStates.set(userId, 'tired');
-      
+      stateChanged = true;
+
       // Отправляем событие смены состояния на tired
-      emitOverlay('avatarStateChanged', { 
-        userId, 
-        state: 'tired' 
+      emitOverlay('avatarStateChanged', {
+        userId,
+        state: 'tired'
       }, getBotChannel());
     }
   }
@@ -143,10 +158,15 @@ function checkInactiveAvatars() {
       activeAvatars.delete(userId);
       avatarLastActivity.delete(userId);
       avatarStates.delete(userId);
-      
+      stateChanged = true;
+
       // Отправляем событие удаления аватара
       emitOverlay('avatarRemoved', { userId }, getBotChannel());
     }
+  }
+
+  if (stateChanged) {
+    touchOverlayState();
   }
 }
 
@@ -171,6 +191,8 @@ function updateAvatarActivity(userId) {
     avatarStates.set(userId, 'normal');
     logLine(`[bot] New avatar ${userId} added with normal state`);
   }
+
+  touchOverlayState();
 }
 
 // Функция для получения текущего тайминга
@@ -179,21 +201,7 @@ function getAvatarTimeoutSeconds() {
 }
 
 // Race game state
-let raceState = {
-  isActive: false,
-  participants: new Set(),
-  participantNames: new Map(), // userId -> displayName
-  positions: new Map(),
-  speeds: new Map(),
-  modifiers: new Map(),
-  maxParticipants: 10,
-  countdown: 0,
-  raceStarted: false,
-  raceFinished: false,
-  winner: null,
-  speedModifiers: new Map(), // userId -> speed modifier
-  startTime: null
-};
+const raceState = overlayState.raceState;
 
 async function refreshToken(profile) {
   if (!profile.refresh_token) {
@@ -286,7 +294,7 @@ async function ensureBotFor(uid) {
     
     // Загружаем настройки тайминга из БД
     try {
-      const { getAvatarTimeoutSeconds } = require('../db');
+      const { getAvatarTimeoutSeconds } = require('../../db');
       const dbTimeout = getAvatarTimeoutSeconds(uid);
       if (dbTimeout && dbTimeout !== avatarTimeoutSeconds) {
         avatarTimeoutSeconds = dbTimeout;
@@ -299,7 +307,7 @@ async function ensureBotFor(uid) {
     startAvatarTimeoutChecker(); // Запускаем проверку неактивных аватаров
     
     // Подписываемся на события bus для отслеживания аватаров из донатов
-    const { on } = require('../lib/bus');
+    const { on } = require('../../lib/bus');
     on('avatar:show', (data) => {
       if (data.streamerId === uid && data.twitchUserId) {
         logLine(`[bot] Avatar shown via donation for user ${data.twitchUserId}`);
@@ -692,10 +700,12 @@ async function ensureBotFor(uid) {
 async function stopBot() {
   if (!tmiClient) return false;
   await tmiClient.disconnect();
-  tmiClient = null; 
+  tmiClient = null;
   botForUser = null;
   botReady = false;
   activeAvatars.clear();
+  touchOverlayState();
+  flushOverlayState();
   logLine('[bot] stopped');
   return true;
 }
@@ -712,12 +722,14 @@ function status() {
 function addActiveAvatar(userId) {
   activeAvatars.add(userId);
   logLine(`[bot] Added avatar ${userId} to active list`);
+  touchOverlayState();
 }
 
 // Функция для удаления аватара из активного списка
 function removeActiveAvatar(userId) {
   activeAvatars.delete(userId);
   logLine(`[bot] Removed avatar ${userId} from active list`);
+  touchOverlayState();
 }
 
 function getBotClient() {
@@ -752,6 +764,7 @@ function startRace(client, channel, settings = {}) {
     raceState.raceFinished = false;
     raceState.startTime = null;
     raceState.countdown = 0;
+    touchOverlayState();
   }
 
   // Set race state
@@ -763,6 +776,7 @@ function startRace(client, channel, settings = {}) {
   raceState.startTime = null;
   raceState.minParticipants = minParticipants;
   raceState.maxParticipants = maxParticipants;
+  touchOverlayState();
 
   // Announce race with settings
   client.say(channel, `🏁 Кто хочет участвовать в гонке, отправьте + в чат! У вас есть ${registrationTime} секунд! (${minParticipants}-${maxParticipants} участников)`).catch(err => logLine(`[bot] say error: ${err.message}`));
@@ -773,9 +787,10 @@ function startRace(client, channel, settings = {}) {
     if (raceState.participants.size < minParticipants) {
       client.say(channel, `⏰ Время вышло! Недостаточно участников (${raceState.participants.size}/${minParticipants}). Гонка отменена.`).catch(err => logLine(`[bot] say error: ${err.message}`));
       raceState.isActive = false;
+      touchOverlayState();
       return;
     }
-    
+
     // Limit participants if too many joined
     if (raceState.participants.size > maxParticipants) {
       const participantsArray = Array.from(raceState.participants);
@@ -789,11 +804,13 @@ function startRace(client, channel, settings = {}) {
         raceState.participants.add(participantId);
         // Note: We'd need to store participant names separately to show them here
       });
-      
+
       client.say(channel, `🎯 Слишком много участников! Выбраны первые ${maxParticipants} участников.`).catch(err => logLine(`[bot] say error: ${err.message}`));
+      touchOverlayState();
     }
-    
+
     startRaceCountdown(client, channel);
+    touchOverlayState();
   }, registrationTime * 1000);
 }
 
@@ -810,6 +827,7 @@ function joinRace(userId, displayName, client, channel) {
   raceState.participants.add(userId);
   raceState.participantNames.set(userId, displayName);
   client.say(channel, `@${displayName} присоединился к гонке! (${raceState.participants.size}/${raceState.maxParticipants})`).catch(err => logLine(`[bot] say error: ${err.message}`));
+  touchOverlayState();
 
   // If we have enough participants, start immediately
   if (raceState.participants.size >= raceState.maxParticipants) {
@@ -822,6 +840,7 @@ function startRaceCountdown(client, channel) {
 
   raceState.raceStarted = true;
   raceState.startTime = Date.now();
+  touchOverlayState();
 
   // Emit race start event to overlay
   const raceStartData = {
@@ -866,7 +885,8 @@ function checkRaceCheering(text, client, channel) {
       // Add speed modifier
       const currentModifier = raceState.speedModifiers.get(participantId) || 0;
       raceState.speedModifiers.set(participantId, currentModifier + 0.05); // 5% speed boost per cheer (уменьшено в 2 раза)
-      
+      touchOverlayState();
+
       // Emit speed update
       emitOverlay('raceSpeedUpdate', {
         participantId: participantId,
@@ -890,6 +910,7 @@ function joinFoodGame(userId, displayName, client, channel) {
   foodGameState.scores.set(userId, 0);
   foodGameState.directions.set(userId, 1); // Start moving right
   foodGameState.speedModifiers.set(userId, 0); // No speed modifier initially
+  touchOverlayState();
 
   const participantCount = foodGameState.participants.size;
   client.say(channel, `🥕 @${displayName} присоединился к игре! Участников: ${participantCount}`).catch(err => logLine(`[bot] say error: ${err.message}`));
@@ -898,9 +919,10 @@ function joinFoodGame(userId, displayName, client, channel) {
 
 function finishRace(winnerId, client, channel) {
   if (raceState.raceFinished) return;
-  
+
   raceState.raceFinished = true;
   raceState.winner = winnerId;
+  touchOverlayState();
   
   // Get winner's display name from participants
   const winnerName = raceState.participantNames.get(winnerId) || winnerId;
@@ -925,6 +947,7 @@ function finishRace(winnerId, client, channel) {
     raceState.raceStarted = false;
     raceState.raceFinished = false;
     raceState.winner = null;
+    touchOverlayState();
   }, 5000);
 }
 
@@ -942,7 +965,7 @@ function getBotChannel() {
   // botForUser is twitch_user_id, we need to get the login
   // For now, we'll use a simple approach - get the login from the profile
   // This is a temporary fix - ideally we should store the login separately
-  const { getUserByTwitchId } = require('../db');
+  const { getUserByTwitchId } = require('../../db');
   const profile = getUserByTwitchId(botForUser);
   logLine(`[bot] getBotChannel: profile=${profile ? 'found' : 'not found'}, login=${profile?.login}`);
   if (profile && profile.login) {
@@ -956,19 +979,7 @@ function getBotChannel() {
 }
 
 // Состояние игры "Собери еду"
-const foodGameState = {
-  isActive: false,
-  participants: new Set(),
-  participantNames: new Map(),
-  scores: new Map(), // userId -> score
-  directions: new Map(), // userId -> direction (1 = right, -1 = left)
-  speedModifiers: new Map(), // userId -> speed modifier
-  carrots: [], // Массив падающих морковок
-  gameStarted: false,
-  gameFinished: false,
-  startTime: null,
-  winner: null
-};
+const foodGameState = overlayState.foodGameState;
 
 
 // === Константы команд ===
@@ -991,17 +1002,10 @@ function sweptPass(prevX, currX, c2, halfSum) {
 }
 
 // Метрики хитбокса аватаров (половины размеров, поступают с клиента)
-const AvatarMetrics = new Map(); // userId -> { halfW, halfH }
+const AvatarMetrics = overlayState.avatarMetrics; // userId -> { halfW, halfH }
 
 // Пример структуры состояния
-const Game = {
-  isActive: false,     // true со старта отсчёта и до конца гонки на самолетах
-  gameFinished: false,
-  players: new Map(),  // id -> { lane:1, lives:3, out:false, ... }
-  obstacles: [],       // [{ id, lane, x, speed, width, hit, type }]
-  lanes: [0,1,2],
-  maxLives: 3,
-};
+const Game = overlayState.planeGame;
 
 // Вспомогательно
 function clampLane(l) { return Math.max(0, Math.min(2, l|0)); }
@@ -1027,6 +1031,7 @@ function spawnGameObstacle(channel) {
 
   const obs = { id, lane, x: xStart, speed, width, hit: false, type };
   Game.obstacles.push(obs);
+  touchOverlayState();
 
   logLine(`[bot] Spawning obstacle ${id} in lane ${lane} (type: ${type})`);
   
@@ -1077,9 +1082,11 @@ function serverTick() {
   
   // Удаляем препятствия за экраном
   Game.obstacles = Game.obstacles.filter(o => o.x + (o.width ?? 80) > 0);
-  
+  touchOverlayState();
+
   // Рассылаем состояние
   broadcastState();
+  touchOverlayState();
 }
 
 function checkFinishLine() {
@@ -1112,6 +1119,7 @@ function checkFinishLine() {
   if (alivePlayers === 0) {
     Game.gameFinished = true;
     Game.isActive = false;
+    touchOverlayState();
     
     logLine(`[bot] Game finished! No winners - all players died`);
     
@@ -1142,6 +1150,7 @@ function checkFinishLine() {
     // Игра завершена!
     Game.gameFinished = true;
     Game.isActive = false;
+    touchOverlayState();
     
     // Получаем имя победителя
     const winnerName = racePlanState.participantNames.get(winner) || 'Unknown';
@@ -1176,7 +1185,8 @@ function resetGameState() {
   Game.gameFinished = false;
   Game.players.clear();
   Game.obstacles = [];
-  
+  touchOverlayState();
+
   // Сбрасываем состояние гонки на самолетах
   racePlanState.isActive = false;
   racePlanState.gameFinished = true;
@@ -1187,7 +1197,8 @@ function resetGameState() {
   racePlanState.lives.clear();
   racePlanState.obstacles = [];
   racePlanState.winner = null;
-  
+  touchOverlayState();
+
   logLine(`[bot] Game state reset after finish`);
 }
 
@@ -1227,8 +1238,9 @@ function handleGameCollisions() {
 
       // столкновение
       logLine(`[bot] Collision detected: player ${id} at x:${p.x.toFixed(1)} with obstacle at x:${o.x.toFixed(1)} (pHalf:${pHalf}, oHalf:${obstacleHalf})`);
-      p.lives = Math.max(0, (p.lives ?? 3) - 1);
-      if (p.lives <= 0) p.out = true;
+  p.lives = Math.max(0, (p.lives ?? 3) - 1);
+  if (p.lives <= 0) p.out = true;
+  touchOverlayState();
 
       if (!o.hitFor) o.hitFor = new Set();
       o.hitFor.add(id);
@@ -1254,6 +1266,7 @@ function handleGameCollisions() {
     }
     return true; // оставляем в массиве
   });
+  touchOverlayState();
   
   // Отправляем события удаления препятствий на клиент
   obstaclesToRemove.forEach(o => {
@@ -1264,6 +1277,7 @@ function handleGameCollisions() {
     const index = racePlanState.obstacles.findIndex(obs => obs.id === o.id);
     if (index !== -1) {
       racePlanState.obstacles.splice(index, 1);
+      touchOverlayState();
     }
   });
 }
@@ -1338,6 +1352,7 @@ function startFoodGame(client, channel, settings = {}) {
     foodGameState.gameStarted = false;
     foodGameState.gameFinished = false;
     foodGameState.startTime = null;
+    touchOverlayState();
   }
 
   // Set game state
@@ -1352,6 +1367,7 @@ function startFoodGame(client, channel, settings = {}) {
   foodGameState.gameStarted = false;
   foodGameState.gameFinished = false;
   foodGameState.startTime = null;
+  touchOverlayState();
 
   // Announce game with settings
   client.say(channel, `🥕 Кто хочет участвовать в игре "Собери еду", отправьте + в чат! У вас есть ${registrationTime} секунд! (${minParticipants}-${maxParticipants} участников)`).catch(err => logLine(`[bot] say error: ${err.message}`));
@@ -1362,6 +1378,7 @@ function startFoodGame(client, channel, settings = {}) {
     if (foodGameState.participants.size < minParticipants) {
       client.say(channel, `⏰ Время вышло! Недостаточно участников (${foodGameState.participants.size}/${minParticipants}). Игра отменена.`).catch(err => logLine(`[bot] say error: ${err.message}`));
       foodGameState.isActive = false;
+      touchOverlayState();
       return;
     }
     
@@ -1377,11 +1394,13 @@ function startFoodGame(client, channel, settings = {}) {
       selectedParticipants.forEach(participantId => {
         foodGameState.participants.add(participantId);
       });
-      
+
       client.say(channel, `🎯 Слишком много участников! Выбраны первые ${maxParticipants} участников.`).catch(err => logLine(`[bot] say error: ${err.message}`));
+      touchOverlayState();
     }
-    
+
     startFoodGameCountdown(client, channel);
+    touchOverlayState();
   }, registrationTime * 1000);
 }
 
@@ -1390,6 +1409,7 @@ function startFoodGameCountdown(client, channel) {
 
   foodGameState.gameStarted = true;
   foodGameState.startTime = Date.now();
+  touchOverlayState();
 
   // Initialize scores, directions and speed modifiers for all participants
   foodGameState.participants.forEach(participantId => {
@@ -1520,8 +1540,9 @@ function spawnCarrot(channel) {
     speed: 2 + Math.random() * 2, // Random fall speed
     collected: false
   };
-  
+
   foodGameState.carrots.push(carrot);
+  touchOverlayState();
   
   // Emit carrot spawn
   emitOverlay('carrotSpawn', carrot, channel);
@@ -1532,6 +1553,7 @@ function spawnCarrot(channel) {
     if (index !== -1) {
       foodGameState.carrots.splice(index, 1);
       emitOverlay('carrotRemove', { id: carrot.id }, channel);
+      touchOverlayState();
     }
   }, 15000);
 }
@@ -1546,7 +1568,8 @@ function checkCarrotCollisions() {
       foodGameState.winner = userId;
       foodGameState.gameFinished = true;
       foodGameState.isActive = false;
-      
+      touchOverlayState();
+
       const winnerName = foodGameState.participantNames.get(userId) || 'Unknown';
       logLine(`[bot] Food game winner: ${winnerName} (${userId})`);
       
@@ -1579,21 +1602,7 @@ function finishFoodGame(winnerName, client, channel) {
 
 // Race Plan Game Functions
 // Состояние игры "Гонка на самолетах"
-const racePlanState = {
-  isActive: false,
-  participants: new Set(),
-  participantNames: new Map(),
-  positions: new Map(), // userId -> { x: number, y: number }
-  levels: new Map(), // userId -> level (0, 1, 2) - 3 уровня высоты
-  lives: new Map(), // userId -> lives (3, 2, 1, 0)
-  obstacles: [], // Массив препятствий
-  gameStarted: false,
-  gameFinished: false,
-  startTime: null,
-  winner: null,
-  maxParticipants: 8,
-  trackWidth: 1200 // Динамически обновляется с клиента
-};
+const racePlanState = overlayState.racePlanState;
 
 function startRacePlan(client, channel, settings = {}) {
   const { minParticipants = 1, maxParticipants = 8, registrationTime = 10 } = settings;
@@ -1634,6 +1643,7 @@ function startRacePlan(client, channel, settings = {}) {
     racePlanState.gameStarted = false;
     racePlanState.gameFinished = false;
     racePlanState.startTime = null;
+    touchOverlayState();
   }
 
   // Set game state
@@ -1648,12 +1658,14 @@ function startRacePlan(client, channel, settings = {}) {
   racePlanState.gameStarted = false;
   racePlanState.gameFinished = false;
   racePlanState.startTime = null;
+  touchOverlayState();
 
   // Синхронизируем с новым состоянием Game
   Game.isActive = true; // активируем сразу при старте регистрации
   Game.gameFinished = false;
   Game.players.clear();
   Game.obstacles = []; // очищаем препятствия
+  touchOverlayState();
 
   // Announce game with settings
   logLine(`[bot] About to send announcement message to channel: ${channel}`);
@@ -1675,6 +1687,7 @@ function startRacePlan(client, channel, settings = {}) {
         logLine(`[bot] Full error: ${JSON.stringify(err)}`);
       });
       racePlanState.isActive = false;
+      touchOverlayState();
       return;
     }
     
@@ -1682,23 +1695,25 @@ function startRacePlan(client, channel, settings = {}) {
     if (racePlanState.participants.size > maxParticipants) {
       const participantsArray = Array.from(racePlanState.participants);
       const selectedParticipants = participantsArray.slice(0, maxParticipants);
-      
+
       // Reset participants to only selected ones
       racePlanState.participants.clear();
       racePlanState.participantNames.clear();
-      
+
       selectedParticipants.forEach(participantId => {
         racePlanState.participants.add(participantId);
       });
-      
+
       client.say(channel, `🎯 Слишком много участников! Выбраны первые ${maxParticipants} участников.`).catch(err => {
         logLine(`[bot] say error: ${err.message}`);
         logLine(`[bot] Full error: ${JSON.stringify(err)}`);
       });
+      touchOverlayState();
     }
-    
+
     logLine(`[bot] About to call startRacePlanCountdown with client: ${typeof client}, channel: ${channel}`);
     startRacePlanCountdown(client, channel);
+    touchOverlayState();
   }, registrationTime * 1000);
 }
 
@@ -1757,9 +1772,11 @@ function startRacePlanCountdown(client, channel) {
 
   racePlanState.gameStarted = true;
   racePlanState.startTime = Date.now();
+  touchOverlayState();
 
   // Активируем Game состояние со старта отсчета
   Game.isActive = true;
+  touchOverlayState();
 
   // Emit plane race start event to overlay
   const racePlanStartData = {
@@ -1941,8 +1958,9 @@ function spawnObstacle(channel) {
     speed: 3 + Math.random() * 2, // Random speed
     type: Math.random() > 0.5 ? 'bird' : 'plane' // Random obstacle type
   };
-  
+
   racePlanState.obstacles.push(obstacle);
+  touchOverlayState();
   
   logLine(`[bot] Spawning obstacle in lane ${randomLevel} (type: ${obstacle.type})`);
   
@@ -1955,6 +1973,7 @@ function spawnObstacle(channel) {
     if (index !== -1) {
       racePlanState.obstacles.splice(index, 1);
       emitOverlay('obstacleRemove', { id: obstacle.id }, channel);
+      touchOverlayState();
     }
   }, 15000);
 }
@@ -2012,6 +2031,7 @@ function checkRacePlanCollisions() {
           // убрать препятствие
           racePlanState.obstacles.splice(i, 1);
           emitOverlay('obstacleRemove', { id: obstacle.id }, getBotChannel());
+          touchOverlayState();
           
           // защитимся от повторного удара по тому же препятствию
           obstacle.hit = true;
@@ -2028,6 +2048,7 @@ function checkRacePlanCollisions() {
         racePlanState.winner = userId;
         racePlanState.gameFinished = true;
         racePlanState.isActive = false;
+        touchOverlayState();
         
         const winnerName = racePlanState.participantNames.get(userId) || 'Unknown';
         logLine(`[bot] Plane race winner: ${winnerName} (${userId})`);
@@ -2059,15 +2080,17 @@ function handleRacePlanCollision(playerId, obstacleId) {
   // Уменьшаем жизни игрока
   player.lives = Math.max(0, player.lives - 1);
   logLine(`[bot] Player ${playerId} lives reduced to: ${player.lives}`);
-  
+
   // Обновляем состояние в racePlanState
   racePlanState.lives.set(playerId, player.lives);
+  touchOverlayState();
   
   // Если жизни закончились, исключаем игрока
   if (player.lives <= 0) {
     player.out = true;
     logLine(`[bot] Player ${playerId} is out of the race`);
-    
+    touchOverlayState();
+
     // Отправляем событие коллизии на overlay
     emitOverlay('racePlanCollision', { playerId, lives: 0 }, getBotChannel());
   } else {
@@ -2083,6 +2106,7 @@ function finishRacePlan(winnerName, client, channel) {
   Game.isActive = false;
   Game.gameFinished = true;
   Game.obstacles = []; // очищаем препятствия
+  touchOverlayState();
 
   if (client && channel) {
     client.say(channel, `🏆 Гонка на самолетах завершена! Поздравляем победителя: ${winnerName}! 🏆`);

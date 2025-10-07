@@ -6,11 +6,13 @@ function registerLogoutRoute(app) {
     res.clearCookie('uid');
     res.cookie('force_login', '1', { httpOnly: true, sameSite: 'lax' });
     try {
-      const st = status();
-      if (st.running && st.for_user && uid && String(uid) === String(st.for_user)) {
-        try { await stopBot(); } catch(_) {}
+      if (uid) {
+        const st = status(String(uid));
+        if (st.running) {
+          try { await stopBot(String(uid)); } catch (_) {}
+        }
       }
-    } catch(_) {}
+    } catch (_) {}
     res.status(200).send('ok');
   });
 }
