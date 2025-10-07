@@ -1,0 +1,140 @@
+// server.js
+const express = require('express');
+const cors = require('cors');
+const cookieParser = require('cookie-parser');
+const path = require('path');
+
+const { PORT, BASE_URL, assertConfig } = require('./lib/config');
+const { sseHandler } = require('./lib/logger');
+const { registerAuthRoutes } = require('./routes/auth');
+const { registerSuccessRoute } = require('./routes/success');
+const { registerMyAvatarRoute } = require('./routes/my-avatar');
+const { registerAvatarCustomizeRoutes } = require('./routes/avatar-customize');
+const { registerBotRoutes } = require('./routes/bot');
+const { registerHealthRoute } = require('./routes/health');
+const { registerLogoutRoute } = require('./routes/logout');
+const { registerGiftRoutes } = require('./routes/gifts');
+const { registerMyChatRoute } = require('./routes/my-chat');
+const { registerPaymentSuccessRoute } = require('./routes/payment-success');
+const { registerDonationAlertsRoute } = require('./routes/donationalerts');
+const { registerDonationAlertsAuthRoutes } = require('./routes/donationalerts-auth');
+const { registerDonationAlertsConnectRoutes } = require('./routes/donationalerts-connect');
+const { registerDebugRoutes } = require('./routes/debug');
+const { overlayEventsHandler } = require('./lib/bus');
+const { finishRace, finishFoodGame } = require('./services/bot');
+const { handleWebhook, validateWebhook } = require('./lib/yookassa');
+const { initializeUsernameCache } = require('./lib/donationalerts');
+
+const app = express();
+app.use(cors());
+app.use(cookieParser());
+app.use(express.json());
+app.use(express.static(__dirname));
+
+assertConfig(console);
+
+// Logs SSE
+app.get('/events', sseHandler);
+
+// Overlay SSE
+app.get('/overlay/events', (req, res) => {
+  // Parse query parameters manually if needed
+  req.query = req.query || {};
+  overlayEventsHandler(req, res);
+});
+
+// Race finish API
+app.post('/api/race/finish', (req, res) => {
+  try {
+    const { winnerId } = req.body;
+    if (!winnerId) {
+      return res.status(400).json({ error: 'Missing winnerId' });
+    }
+    
+    // Get bot client and channel from bot service
+    const { getBotClient, getBotChannel } = require('./services/bot');
+    const client = getBotClient();
+    const channel = getBotChannel();
+    
+    if (client && channel) {
+      finishRace(winnerId, client, channel);
+      res.json({ success: true, message: 'Race finished' });
+    } else {
+      res.status(500).json({ error: 'Bot not connected' });
+    }
+  } catch (error) {
+    console.error('Error finishing race:', error);
+    res.status(500).json({ error: 'Failed to finish race' });
+  }
+});
+
+// Food game finish API
+app.post('/api/food-game/finish', (req, res) => {
+  try {
+    const { winnerId, winnerName } = req.body;
+
+    if (!winnerId || !winnerName) {
+      return res.status(400).json({ error: 'Missing winnerId or winnerName' });
+    }
+
+    // Get bot client and channel from bot service
+    const { getBotClient, getBotChannel } = require('./services/bot');
+    const client = getBotClient();
+    const channel = getBotChannel();
+
+    if (client && channel) {
+      // Вызываем finishFoodGame из services/bot.js
+      // Предполагается, что функция finishFoodGame существует и отправляет сообщение в чат
+      const { finishFoodGame } = require('./services/bot');
+      finishFoodGame(winnerName, client, channel); // Передаем имя победителя
+
+      res.json({ success: true, message: 'Food game finished' });
+    } else {
+      res.status(500).json({ error: 'Bot not connected' });
+    }
+  } catch (error) {
+    console.error('Error finishing food game:', error);
+    res.status(500).json({ error: 'Failed to finish food game' });
+  }
+});
+
+// YooKassa webhook
+app.post('/api/payment/webhook', validateWebhook, handleWebhook);
+
+// Routes
+registerAuthRoutes(app);
+registerSuccessRoute(app);
+registerMyAvatarRoute(app);
+registerAvatarCustomizeRoutes(app);
+registerBotRoutes(app);
+registerHealthRoute(app);
+registerLogoutRoute(app);
+registerGiftRoutes(app);
+registerMyChatRoute(app);
+registerPaymentSuccessRoute(app);
+registerDonationAlertsRoute(app);
+registerDonationAlertsAuthRoutes(app);
+registerDonationAlertsConnectRoutes(app);
+registerDebugRoutes(app);
+
+// API для метрик хитбокса аватаров
+app.post('/api/plane-race/avatar-metrics', express.json(), (req, res) => {
+  const { userId, halfW, halfH } = req.body || {};
+  // Получаем Game из bot.js
+  const { Game } = require('./services/bot');
+  const p = Game.players.get(String(userId));
+  if (p && Number.isFinite(halfW)) { p.halfW = halfW; }
+  if (p && Number.isFinite(halfH)) { p.halfH = halfH; }
+  res.json({ ok: true });
+});
+
+// Initialize DonationAlerts username cache
+initializeUsernameCache();
+
+// Start DonationAlerts polling
+const { startPolling } = require('./lib/donationalerts-poll');
+startPolling();
+
+app.listen(PORT, () => {
+  console.log(`Server listening on ${BASE_URL}`);
+});
