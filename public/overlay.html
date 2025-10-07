@@ -727,6 +727,22 @@
     // User avatar cache
     const userAvatars = new Map();
 
+    const overlayAuth = {
+      token: null,
+      streamerId: null
+    };
+
+    function withStreamerAuth(payload = {}) {
+      const result = { ...payload };
+      if (overlayAuth.streamerId) {
+        result.streamerId = overlayAuth.streamerId;
+      }
+      if (overlayAuth.token) {
+        result.token = overlayAuth.token;
+      }
+      return result;
+    }
+
     // Avatar state management functions
     function stopAvatarIntervals(avatar) {
       // выключаем любые ранее запущенные интервалы
@@ -1842,7 +1858,7 @@
             fetch('/api/race/finish', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ winnerId: userId })
+              body: JSON.stringify(withStreamerAuth({ winnerId: userId }))
             }).catch(err => console.error('Error finishing race:', err));
             
             finishRace(userId);
@@ -2148,7 +2164,7 @@
       fetch('/api/food-game/finish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ winnerId: winnerId })
+        body: JSON.stringify(withStreamerAuth({ winnerId, winnerName }))
       }).catch(err => console.error('Error finishing food game:', err));
       
         // Hide after 5 seconds and clean up
@@ -2537,7 +2553,7 @@
                         fetch('/api/food-game/finish', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ winnerId: userId, winnerName: winnerName })
+                            body: JSON.stringify(withStreamerAuth({ winnerId: userId, winnerName }))
                         }).catch(err => console.error('Error finishing food game:', err));
 
                         // --- Обновленная логика завершения игры ---
@@ -2777,7 +2793,7 @@
             fetch('/api/food-game/score-update', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId, score: newScore })
+              body: JSON.stringify(withStreamerAuth({ userId, score: newScore }))
             }).catch(err => console.error('Error updating score:', err));
             
             // Remove carrot after animation
@@ -3041,11 +3057,11 @@
       // Отправляем метрики хитбокса на сервер
       setTimeout(() => {
         const { halfW, halfH } = measureHalfSizes(racePlanAvatar);
-        fetch('/api/race-plan/avatar-metrics', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, halfW, halfH })
-        }).catch(console.error);
+       fetch('/api/race-plan/avatar-metrics', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(withStreamerAuth({ userId, halfW, halfH }))
+       }).catch(console.error);
       }, 100);
 
       console.log(`Created plane race avatar for user: ${userId}`);
@@ -3243,11 +3259,11 @@
       if (trackEl) {
         const trackWidth = trackEl.clientWidth;
         // Отправляем обновление ширины трека на сервер
-        fetch('/api/race-plan/update-track-width', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trackWidth })
-        }).catch(err => console.error('Error updating track width:', err));
+       fetch('/api/race-plan/update-track-width', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(withStreamerAuth({ trackWidth }))
+       }).catch(err => console.error('Error updating track width:', err));
       }
     }
 
@@ -3402,7 +3418,7 @@
         fetch('/api/race-plan/finish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ winnerId: playerId })
+          body: JSON.stringify(withStreamerAuth({ winnerId: playerId }))
         }).catch(err => console.error('Error finishing race plan:', err));
         
         console.log(`Player ${playerId} finished the race! Right edge: ${rightEdge}, Track width: ${trackRect.width}`);
@@ -3617,7 +3633,10 @@
       const urlParams = new URLSearchParams(window.location.search);
       const token = urlParams.get('token');
       const streamerId = urlParams.get('streamer_id') || urlParams.get('streamer');
-      
+
+      overlayAuth.token = token || null;
+      overlayAuth.streamerId = streamerId ? String(streamerId) : null;
+
       if (!token && !streamerId) {
         console.error('[overlay] ERROR: token or streamer_id parameter is required');
         document.body.innerHTML = '<div style="color: red; font-size: 24px; text-align: center; margin-top: 50px;">ERROR: token or streamer_id parameter is required</div>';

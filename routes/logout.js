@@ -6,13 +6,16 @@ function registerLogoutRoute(app) {
     
     // Останавливаем бота если он запущен для этого пользователя
     try {
-      const st = status();
-      if (st.running && st.for_user && uid && String(uid) === String(st.for_user)) {
-        try { 
-          await stopBot(); 
-        } catch(_) {}
+      if (uid) {
+        const streamerKey = String(uid);
+        const st = status(streamerKey);
+        if (st.running && st.for_user && String(st.for_user) === streamerKey) {
+          try {
+            await stopBot(streamerKey);
+          } catch (_) {}
+        }
       }
-    } catch(_) {}
+    } catch (_) {}
     
     // Уничтожаем сессию
     req.session.destroy((err) => {

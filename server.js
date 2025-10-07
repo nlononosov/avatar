@@ -23,10 +23,10 @@ const { registerDonationAlertsAuthRoutes } = require('./routes/donationalerts-au
 const { registerDonationAlertsConnectRoutes } = require('./routes/donationalerts-connect');
 const { registerDebugRoutes } = require('./routes/debug');
 const { overlayEventsHandler } = require('./lib/bus');
-const { finishRace, finishFoodGame } = require('./services/bot');
+const botService = require('./services/bot');
 const { handleWebhook, validateWebhook } = require('./lib/yookassa');
 const { initializeUsernameCache } = require('./lib/donationalerts');
-const { validateStreamerAccess, validateUserStreamerAccess } = require('./lib/streamer-auth');
+const { validateStreamerAccess, validateUserStreamerAccess, verifyStreamerToken } = require('./lib/streamer-auth');
 
 const app = express();
 
@@ -166,17 +166,30 @@ app.get('/overlay/events', validateStreamerAccess, (req, res) => {
 app.post('/api/race/finish', (req, res) => {
   try {
     const { winnerId } = req.body;
+    const raceToken = req.body?.token;
+    let rawStreamerId = req.body?.streamerId || req.body?.streamer_id || req.session?.userId;
+
+    if (!rawStreamerId && raceToken) {
+      const payload = verifyStreamerToken(raceToken);
+      if (payload?.streamer_twitch_id) {
+        rawStreamerId = payload.streamer_twitch_id;
+      }
+    }
+
     if (!winnerId) {
       return res.status(400).json({ error: 'Missing winnerId' });
     }
-    
-    // Get bot client and channel from bot service
-    const { getBotClient, getBotChannel } = require('./services/bot');
-    const client = getBotClient();
-    const channel = getBotChannel();
-    
+
+    if (!rawStreamerId) {
+      return res.status(400).json({ error: 'Missing streamerId' });
+    }
+
+    const streamerId = String(rawStreamerId);
+    const client = botService.getBotClient(streamerId);
+    const channel = botService.getBotChannel(streamerId);
+
     if (client && channel) {
-      finishRace(winnerId, client, channel);
+      botService.finishRace(streamerId, winnerId, client, channel);
       res.json({ success: true, message: 'Race finished' });
     } else {
       res.status(500).json({ error: 'Bot not connected' });
@@ -191,21 +204,30 @@ app.post('/api/race/finish', (req, res) => {
 app.post('/api/food-game/finish', (req, res) => {
   try {
     const { winnerId, winnerName } = req.body;
+    const foodToken = req.body?.token;
+    let rawStreamerId = req.body?.streamerId || req.body?.streamer_id || req.session?.userId;
+
+    if (!rawStreamerId && foodToken) {
+      const payload = verifyStreamerToken(foodToken);
+      if (payload?.streamer_twitch_id) {
+        rawStreamerId = payload.streamer_twitch_id;
+      }
+    }
 
     if (!winnerId || !winnerName) {
       return res.status(400).json({ error: 'Missing winnerId or winnerName' });
     }
 
-    // Get bot client and channel from bot service
-    const { getBotClient, getBotChannel } = require('./services/bot');
-    const client = getBotClient();
-    const channel = getBotChannel();
+    if (!rawStreamerId) {
+      return res.status(400).json({ error: 'Missing streamerId' });
+    }
+
+    const streamerId = String(rawStreamerId);
+    const client = botService.getBotClient(streamerId);
+    const channel = botService.getBotChannel(streamerId);
 
     if (client && channel) {
-      // Вызываем finishFoodGame из services/bot.js
-      // Предполагается, что функция finishFoodGame существует и отправляет сообщение в чат
-      const { finishFoodGame } = require('./services/bot');
-      finishFoodGame(winnerName, client, channel); // Передаем имя победителя
+      botService.finishFoodGame(streamerId, winnerName, client, channel);
 
       res.json({ success: true, message: 'Food game finished' });
     } else {
@@ -242,12 +264,16 @@ registerDonationAlertsWebhookRoutes(app);
 
 // API для метрик хитбокса аватаров
 app.post('/api/plane-race/avatar-metrics', express.json(), (req, res) => {
+  const streamerId = req.session.userId;
+  if (!streamerId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   const { userId, halfW, halfH } = req.body || {};
-  // Получаем Game из bot.js
-  const { Game } = require('./services/bot');
-  const p = Game.players.get(String(userId));
-  if (p && Number.isFinite(halfW)) { p.halfW = halfW; }
-  if (p && Number.isFinite(halfH)) { p.halfH = halfH; }
+  const game = botService.getGameState(String(streamerId));
+  const player = game?.players?.get(String(userId));
+  if (player && Number.isFinite(halfW)) { player.halfW = halfW; }
+  if (player && Number.isFinite(halfH)) { player.halfH = halfH; }
   res.json({ ok: true });
 });
 

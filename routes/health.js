@@ -1,9 +1,10 @@
 const { PORT, BASE_URL, SCOPES, CLIENT_ID, CLIENT_SECRET } = require('../lib/config');
-const { status } = require('../services/bot');
+const { statusAll } = require('../services/bot');
 
 function registerHealthRoute(app) {
   app.get('/health', (_req, res) => {
-    const bot = status();
+    const bot = statusAll();
+    const botRunning = Object.values(bot).some(state => state?.running);
     res.json({
       ok: true,
       baseUrl: BASE_URL,
@@ -11,7 +12,8 @@ function registerHealthRoute(app) {
       scopes: SCOPES,
       hasClientId: Boolean(CLIENT_ID),
       hasClientSecret: Boolean(CLIENT_SECRET),
-      botRunning: bot.running
+      botRunning,
+      bot
     });
   });
 }

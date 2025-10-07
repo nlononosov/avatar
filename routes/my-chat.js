@@ -1,4 +1,27 @@
 const { getUserByTwitchId, getStreamerUsers, getUserAvatarPreview, getAvailableGifts, giveGiftToUser, getAvatarByTwitchId, setAvatarTimeoutSeconds, getAvatarTimeoutSeconds, setGameSettings, getGameSettings } = require('../db');
+const { verifyStreamerToken } = require('../lib/streamer-auth');
+const botService = require('../services/bot');
+
+function resolveStreamerKey(req) {
+  if (req.session?.userId) {
+    return String(req.session.userId);
+  }
+
+  const direct = req.body?.streamerId || req.body?.streamer_id || req.query?.streamerId || req.query?.streamer_id;
+  if (direct) {
+    return String(direct);
+  }
+
+  const token = req.body?.token || req.query?.token;
+  if (token) {
+    const payload = verifyStreamerToken(token);
+    if (payload?.streamer_twitch_id) {
+      return String(payload.streamer_twitch_id);
+    }
+  }
+
+  return null;
+}
 
 function registerMyChatRoute(app) {
   // API для получения списка пользователей стримера
@@ -90,19 +113,21 @@ function registerMyChatRoute(app) {
 
   // API для обновления ширины трека в игре race-plan
   app.post('/api/race-plan/update-track-width', (req, res) => {
+    const streamerKey = resolveStreamerKey(req);
+    if (!streamerKey) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     try {
       const { trackWidth } = req.body;
-      
+
       if (typeof trackWidth !== 'number' || trackWidth <= 0) {
         return res.status(400).json({ error: 'Invalid track width' });
       }
 
-      // Импортируем состояние игры
-      const { racePlanState } = require('../services/bot');
-      
-      // Обновляем ширину трека
+      const racePlanState = botService.getRacePlanState(streamerKey);
       racePlanState.trackWidth = trackWidth;
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error('Error updating track width:', error);
@@ -112,25 +137,25 @@ function registerMyChatRoute(app) {
 
   // API для финиша в игре race-plan
   app.post('/api/race-plan/finish', (req, res) => {
+    const streamerKey = resolveStreamerKey(req);
+    if (!streamerKey) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     try {
       const { winnerId } = req.body;
-      
+
       if (!winnerId) {
         return res.status(400).json({ error: 'Missing winnerId' });
       }
 
-      // Импортируем функции бота
-      const { finishRacePlan, getBotClient, getBotChannel } = require('../services/bot');
-      
-      // Получаем имя победителя
-      const { racePlanState } = require('../services/bot');
-      const winnerName = racePlanState.participantNames.get(winnerId) || 'Unknown';
-      
-      // Завершаем игру
-      const client = getBotClient();
-      const channel = getBotChannel();
-      finishRacePlan(winnerName, client, channel);
-      
+      const state = botService.getRacePlanState(streamerKey);
+      const winnerName = state.participantNames.get(winnerId) || 'Unknown';
+
+      const client = botService.getBotClient(streamerKey);
+      const channel = botService.getBotChannel(streamerKey);
+      botService.finishRacePlan(streamerKey, winnerName, client, channel);
+
       res.json({ success: true });
     } catch (error) {
       console.error('Error finishing race plan:', error);
@@ -169,12 +194,9 @@ function registerMyChatRoute(app) {
         return res.status(400).json({ error: 'Registration time must be between 5 and 60 seconds' });
       }
 
-      // Импортируем функции бота для запуска гонки
-      const { startRace, getBotClient, getBotChannel } = require('../services/bot');
-      
-      // Получаем активного бота и канал
-      const client = getBotClient();
-      const channel = getBotChannel();
+      const streamerKey = String(streamerId);
+      const client = botService.getBotClient(streamerKey);
+      const channel = botService.getBotChannel(streamerKey);
       
       console.log(`[my-chat] Bot client:`, client ? 'active' : 'null');
       console.log(`[my-chat] Bot channel:`, channel);
@@ -187,7 +209,7 @@ function registerMyChatRoute(app) {
       
       // Запускаем гонку с настройками
       console.log(`[my-chat] Starting race with client and channel:`, channel);
-      startRace(client, channel, { minParticipants, maxParticipants, registrationTime });
+      botService.startRace(streamerKey, client, channel, { minParticipants, maxParticipants, registrationTime });
       
       res.json({ success: true, message: 'Гонка запущена!' });
     } catch (error) {
@@ -227,12 +249,9 @@ function registerMyChatRoute(app) {
         return res.status(400).json({ error: 'Registration time must be between 5 and 60 seconds' });
       }
 
-      // Импортируем функции бота для запуска игры
-      const { startFoodGame, getBotClient, getBotChannel } = require('../services/bot');
-      
-      // Получаем активного бота и канал
-      const client = getBotClient();
-      const channel = getBotChannel();
+      const streamerKey = String(streamerId);
+      const client = botService.getBotClient(streamerKey);
+      const channel = botService.getBotChannel(streamerKey);
       
       console.log(`[my-chat] Bot client:`, client ? 'active' : 'null');
       console.log(`[my-chat] Bot channel:`, channel);
@@ -245,7 +264,7 @@ function registerMyChatRoute(app) {
       
       // Запускаем игру с настройками
       console.log(`[my-chat] Starting food game with client and channel:`, channel);
-      startFoodGame(client, channel, { minParticipants, maxParticipants, registrationTime });
+      botService.startFoodGame(streamerKey, client, channel, { minParticipants, maxParticipants, registrationTime });
       
       res.json({ success: true, message: 'Игра "Собери еду" запущена!' });
     } catch (error) {
@@ -285,12 +304,9 @@ function registerMyChatRoute(app) {
         return res.status(400).json({ error: 'Registration time must be between 5 and 60 seconds' });
       }
 
-      // Импортируем функции бота для запуска игры
-      const { startRacePlan, getBotClient, getBotChannel } = require('../services/bot');
-      
-      // Получаем активного бота и канал
-      const client = getBotClient();
-      const channel = getBotChannel();
+      const streamerKey = String(streamerId);
+      const client = botService.getBotClient(streamerKey);
+      const channel = botService.getBotChannel(streamerKey);
       
       console.log(`[my-chat] Bot client:`, client ? 'active' : 'null');
       console.log(`[my-chat] Bot channel:`, channel);
@@ -303,7 +319,7 @@ function registerMyChatRoute(app) {
       
       // Запускаем игру с настройками
       console.log(`[my-chat] Starting race plan with client and channel:`, channel);
-      startRacePlan(client, channel, { minParticipants, maxParticipants, registrationTime });
+      botService.startRacePlan(streamerKey, client, channel, { minParticipants, maxParticipants, registrationTime });
       
       res.json({ success: true, message: 'Игра "Гонка на самолетах" запущена!' });
     } catch (error) {
@@ -314,13 +330,17 @@ function registerMyChatRoute(app) {
 
   // API для метрик хитбокса аватара
   app.post('/api/race-plan/avatar-metrics', (req, res) => {
+    const streamerKey = resolveStreamerKey(req);
+    if (!streamerKey) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const { userId, halfW, halfH } = req.body || {};
     if (!userId || typeof halfW !== 'number' || typeof halfH !== 'number') {
       return res.status(400).json({ error: 'Bad metrics' });
     }
     try {
-      const { setAvatarMetrics } = require('../services/bot');
-      setAvatarMetrics(userId, halfW, halfH);
+      botService.setAvatarMetrics(streamerKey, userId, halfW, halfH);
       return res.json({ success: true });
     } catch (e) {
       console.error('avatar-metrics error:', e);
@@ -330,6 +350,11 @@ function registerMyChatRoute(app) {
 
   // API для обработки коллизий в игре "Гонка на самолетах"
   app.post('/api/race-plan/collision', (req, res) => {
+    const streamerId = req.session.userId;
+    if (!streamerId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const { playerId, obstacleId } = req.body;
     
     if (!playerId || !obstacleId) {
@@ -337,11 +362,7 @@ function registerMyChatRoute(app) {
     }
 
     try {
-      // Импортируем функции бота для обработки коллизии
-      const { handleRacePlanCollision } = require('../services/bot');
-      
-      // Обрабатываем коллизию
-      handleRacePlanCollision(playerId, obstacleId);
+      botService.handleRacePlanCollision(String(streamerId), playerId, obstacleId);
       
       res.json({ success: true });
     } catch (error) {
@@ -387,9 +408,7 @@ function registerMyChatRoute(app) {
       // Сохраняем настройки в БД
       setAvatarTimeoutSeconds(streamerId, avatarTimeoutSeconds);
 
-      // Обновляем настройки в боте
-      const { setAvatarTimeoutSeconds: setBotTimeout } = require('../services/bot');
-      setBotTimeout(avatarTimeoutSeconds);
+      botService.setAvatarTimeoutSeconds(String(streamerId), avatarTimeoutSeconds);
       
       res.json({ 
         success: true, 
