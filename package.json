@@ -1,0 +1,43 @@
+{
+    "name": "avatar-twitch-oauth",
+    "version": "1.0.1",
+    "private": true,
+    "description": "Minimal Express server for Twitch OAuth and token storage",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js",
+        "dev": "nodemon server.js",
+        "migrate": "node migrations/index.js migrate",
+        "migrate:check": "node migrations/index.js check",
+        "db:optimize": "node scripts/optimize-sqlite.js optimize",
+        "db:stats": "node scripts/optimize-sqlite.js stats",
+        "db:backup": "node scripts/optimize-sqlite.js backup",
+        "postgres:setup": "node scripts/setup-postgresql.js setup",
+        "postgres:test": "node scripts/setup-postgresql.js test",
+        "test:da": "node scripts/test-donationalerts.js all",
+        "test:da:scheduler": "node scripts/test-donationalerts.js scheduler",
+        "test:da:webhooks": "node scripts/test-donationalerts.js webhooks",
+        "test:da:rate-limit": "node scripts/test-donationalerts.js rate-limit",
+        "test:da:backoff": "node scripts/test-donationalerts.js backoff",
+        "fix:tokens": "node scripts/fix-tokens.js"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "dependencies": {
+        "better-sqlite3": "^12.2.0",
+        "cookie-parser": "^1.4.6",
+        "cors": "^2.8.5",
+        "csrf": "^3.1.0",
+        "dotenv": "^16.4.5",
+        "express": "^4.19.2",
+        "express-session": "^1.18.2",
+        "pg": "^8.11.3",
+        "tmi.js": "^1.8.5",
+        "yookassa": "^0.1.1",
+        "yookassa-sdk": "^0.0.13"
+    },
+    "devDependencies": {
+        "nodemon": "^3.0.1"
+    }
+}
