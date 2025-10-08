@@ -722,38 +722,6 @@ function registerMyChatRoute(app) {
   .game-card .game-status { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #10b981; color: white; }
   .game-card .game-status.inactive { background: #6b7280; }
   
-  /* Стили для заглушки игры */
-  .game-card.disabled { 
-    position: relative; 
-    cursor: not-allowed; 
-    opacity: 0.6; 
-  }
-  .game-card.disabled:hover { 
-    background: #334155; 
-    border-color: #475569; 
-    transform: none; 
-  }
-  .game-card.disabled .game-overlay { 
-    position: absolute; 
-    top: 0; 
-    left: 0; 
-    right: 0; 
-    bottom: 0; 
-    background: rgba(0, 0, 0, 0.7); 
-    border-radius: 8px; 
-    display: flex; 
-    align-items: center; 
-    justify-content: center; 
-    z-index: 10; 
-  }
-  .game-card.disabled .game-overlay-text { 
-    color: #fbbf24; 
-    font-weight: 700; 
-    font-size: 14px; 
-    text-align: center; 
-    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8); 
-  }
-  
   @media (max-width: 768px) {
     .main-content { grid-template-columns: 1fr; }
   }
@@ -830,14 +798,11 @@ function registerMyChatRoute(app) {
           <div class="game-description">Собирайте падающие морковки!</div>
           <div class="game-status">Готово к запуску</div>
         </div>
-        <div class="game-card disabled">
+        <div class="game-card" onclick="startPlaneRace()">
           <div class="game-icon">✈️</div>
           <div class="game-name">Гонка на самолетах</div>
           <div class="game-description">Управляйте самолетами и избегайте препятствий!</div>
-          <div class="game-status">В разработке</div>
-          <div class="game-overlay">
-            <div class="game-overlay-text">Новые игры<br>в разработке</div>
-          </div>
+          <div class="game-status" id="planeRaceStatus">Готово к запуску</div>
         </div>
       </div>
     </div>
@@ -1412,7 +1377,7 @@ function registerMyChatRoute(app) {
         const minParticipants = parseInt(document.getElementById('minParticipants').value);
         const maxParticipants = parseInt(document.getElementById('maxParticipants').value);
         const registrationTime = parseInt(document.getElementById('registrationTime').value);
-        
+
         const response = await fetch('/api/games/start-food', {
           method: 'POST',
           headers: {
@@ -1426,7 +1391,7 @@ function registerMyChatRoute(app) {
         });
 
         const result = await response.json();
-        
+
         if (result.success) {
           // Показываем уведомление об успешном запуске
           const gameCards = document.querySelectorAll('.game-card');
@@ -1434,7 +1399,7 @@ function registerMyChatRoute(app) {
           const status = foodGameCard.querySelector('.game-status');
           status.textContent = 'Игра запущена!';
           status.style.background = '#f59e0b';
-          
+
           // Через 3 секунды возвращаем исходное состояние
           setTimeout(() => {
             status.textContent = 'Готово к запуску';
@@ -1445,6 +1410,62 @@ function registerMyChatRoute(app) {
         }
       } catch (error) {
         console.error('Error starting food game:', error);
+        alert('Ошибка запуска игры');
+      }
+    }
+
+    async function startPlaneRace() {
+      try {
+        const minParticipants = parseInt(document.getElementById('minParticipants').value);
+        const maxParticipants = parseInt(document.getElementById('maxParticipants').value);
+        const registrationTime = parseInt(document.getElementById('registrationTime').value);
+
+        const response = await fetch('/api/games/start-race-plan', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            minParticipants,
+            maxParticipants,
+            registrationTime
+          })
+        });
+
+        const result = await response.json();
+        const statusEl = document.getElementById('planeRaceStatus');
+
+        if (result.success) {
+          if (statusEl) {
+            statusEl.textContent = 'Игра запущена!';
+            statusEl.style.background = '#f59e0b';
+            setTimeout(() => {
+              statusEl.textContent = 'Готово к запуску';
+              statusEl.style.background = '#10b981';
+            }, 3000);
+          }
+        } else {
+          if (statusEl) {
+            statusEl.textContent = 'Ошибка запуска';
+            statusEl.style.background = '#ef4444';
+            setTimeout(() => {
+              statusEl.textContent = 'Готово к запуску';
+              statusEl.style.background = '#10b981';
+            }, 3000);
+          }
+          alert('Ошибка запуска игры: ' + result.error);
+        }
+      } catch (error) {
+        console.error('Error starting plane race:', error);
+        const statusEl = document.getElementById('planeRaceStatus');
+        if (statusEl) {
+          statusEl.textContent = 'Ошибка запуска';
+          statusEl.style.background = '#ef4444';
+          setTimeout(() => {
+            statusEl.textContent = 'Готово к запуску';
+            statusEl.style.background = '#10b981';
+          }, 3000);
+        }
         alert('Ошибка запуска игры');
       }
     }
