@@ -220,142 +220,162 @@
       position: fixed;
       left: 0;
       right: 0;
-      bottom: 0;                 /* привязка к нижней границе */
-      height: var(--race-h, 360px);  /* фиксированная высота через css-переменную */
+      bottom: 0;
       width: 100%;
-      background: linear-gradient(180deg, rgba(30, 58, 138, 0.8), rgba(59, 130, 246, 0.4));
+      height: var(--race-h, 340px);
+      background-image:
+        linear-gradient(180deg, rgba(30, 64, 175, 0.85), rgba(30, 64, 175, 0.45)),
+        repeating-linear-gradient(
+          to bottom,
+          rgba(148, 163, 184, 0.22) 0,
+          rgba(148, 163, 184, 0.22) 2px,
+          transparent 2px,
+          transparent calc(33.333% - 2px)
+        );
+      background-size: cover, 100% 100%;
       z-index: 1000;
       display: none;
-      backdrop-filter: blur(2px);
-      overflow: hidden;          /* скрываем элементы, выходящие за границы */
+      overflow: hidden;
+      box-shadow: 0 -12px 24px rgba(15, 23, 42, 0.65);
     }
 
-    /* ВНЕШНИЙ: позиционирование (НЕ должно иметь других transform кроме translate) */
+    .race-plan-area.active {
+      display: block;
+    }
+
     .race-plan-avatar {
       position: absolute;
+      width: 160px;
+      height: 160px;
+      pointer-events: none;
+      will-change: transform, opacity;
+      transition: opacity 0.4s ease, transform 0.2s ease;
       z-index: 1001;
-      will-change: transform; /* Оптимизация для движения */
-      backface-visibility: hidden; /* Предотвращает артефакты при движении */
-      filter: none; /* Убираем все фильтры чтобы избежать следов */
-      background: transparent; /* Убираем возможные фоны */
-      width: var(--avatar-w, 128px);
-      height: var(--avatar-h, 128px);
     }
 
-    /* ВНУТРЕННИЙ: масштаб + эффекты */
     .race-plan-avatar .avatar {
-      position: relative;
-      left: 0 !important;
-      transform-origin: top left;
-      transform: scale(0.4); /* твой базовый масштаб */
-      animation: none; /* Убираем анимацию для точного позиционирования */
-      display: block; /* Важно для высоты контейнера */
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      transform-origin: bottom left;
+      transform: scale(0.45);
+      filter: drop-shadow(0 6px 12px rgba(15, 23, 42, 0.45));
     }
 
-    /* Анимация движения между уровнями */
-    .race-plan-avatar.moving .avatar {
-      transform: scale(0.45); /* Небольшое увеличение при движении */
-      transition: transform 0.15s ease-out;
+    .race-plan-avatar.hit .avatar {
+      animation: planeHit 0.45s ease;
     }
 
-
-    /* Анимация коллизии - только на внутреннем узле */
-    .race-plan-avatar .avatar.collision {
-      animation: planeCollision 0.5s ease-in-out;
+    .race-plan-avatar.eliminated {
+      opacity: 0;
     }
 
-    @keyframes planeCollision {
-      0%,100% { transform: scale(0.4) translateY(0) }
-      25%     { transform: scale(0.4) translateY(-10px) rotate(-5deg) }
-      50%     { transform: scale(0.4) translateY(5px)  rotate(5deg) }
-      75%     { transform: scale(0.4) translateY(-5px) rotate(-3deg) }
+    @keyframes planeHit {
+      0% { transform: scale(0.45) translateY(0); }
+      40% { transform: scale(0.45) translateY(-12px) rotate(-4deg); }
+      70% { transform: scale(0.45) translateY(6px) rotate(4deg); }
+      100% { transform: scale(0.45) translateY(0); }
     }
 
-    /* Состояние "мертвый" аватар */
-    .race-plan-avatar.out {
-      opacity: 0.5;
-      filter: grayscale(100%);
-    }
-
-    /* Отображение жизней (сердечки) */
     .race-plan-avatar .lives-display {
       position: absolute;
-      top: -25px;
+      top: -34px;
       left: 50%;
       transform: translateX(-50%);
       display: flex;
-      gap: 2px;
-      z-index: 1002;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      background: rgba(15, 23, 42, 0.6);
+      box-shadow: 0 6px 12px rgba(15, 23, 42, 0.45);
       pointer-events: none;
     }
 
     .race-plan-avatar .lives-display .heart {
+      position: relative;
       width: 16px;
       height: 16px;
-      background: #ff6b6b;
-      clip-path: polygon(50% 100%, 0% 0%, 100% 0%);
-      border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+      transform: rotate(-45deg);
+      background: radial-gradient(circle at 30% 30%, #fca5a5, #ef4444 75%);
+      border-radius: 50% 50% 40% 40%;
       animation: heartbeat 1s ease-in-out infinite;
     }
 
+    .race-plan-avatar .lives-display .heart::before,
+    .race-plan-avatar .lives-display .heart::after {
+      content: '';
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: inherit;
+      top: -50%;
+      left: 0;
+    }
+
+    .race-plan-avatar .lives-display .heart::after {
+      left: 50%;
+      top: 0;
+    }
+
     .race-plan-avatar .lives-display .heart.empty {
-      background: #666;
+      background: #475569;
       animation: none;
     }
 
+    .race-plan-avatar .lives-display .heart.empty::before,
+    .race-plan-avatar .lives-display .heart.empty::after {
+      background: #475569;
+    }
+
     @keyframes heartbeat {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.1); }
+      0%, 100% { transform: rotate(-45deg) scale(1); }
+      50% { transform: rotate(-45deg) scale(1.15); }
     }
 
-
-    @keyframes planeFloat {
-      0% { transform: scale(0.4) translateY(0px); }
-      100% { transform: scale(0.4) translateY(-5px); }
-    }
-
-    @keyframes planeCollision {
-      0%, 100% { transform: scale(0.4) translateY(0px); }
-      25% { transform: scale(0.4) translateY(-10px) rotate(-5deg); }
-      50% { transform: scale(0.4) translateY(5px) rotate(5deg); }
-      75% { transform: scale(0.4) translateY(-5px) rotate(-3deg); }
-    }
-    
-    @keyframes finishLinePulse {
-      0%, 100% { 
-        opacity: 0.8; 
-        box-shadow: 0 0 10px #ffd700; 
-      }
-      50% { 
-        opacity: 1; 
-        box-shadow: 0 0 20px #ffd700, 0 0 30px #ffd700; 
-      }
-    }
-
-    .obstacle {
+    .race-plan-obstacle {
       position: absolute;
-      z-index: 1001;
-      transition: transform 0.1s ease-out; /* Плавное движение */
-      filter: none; /* Убираем фильтры чтобы избежать следов */
-      will-change: transform; /* Оптимизация для движения */
-      backface-visibility: hidden; /* Предотвращает артефакты при движении */
-      transform-style: preserve-3d;
-      animation: none; /* Убираем любые анимации */
-      transform-origin: center center;
+      width: 74px;
+      height: 48px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #f8fafc, #cbd5f5);
+      box-shadow: 0 10px 18px rgba(15, 23, 42, 0.4);
+      will-change: transform, opacity;
+      z-index: 1000;
+      transition: opacity 0.3s ease;
     }
 
-    .obstacle.bird {
-      width: 40px;
-      height: 30px;
-      background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 30"><path d="M5 15c0-5 5-10 10-10s10 5 10 10c0 3-2 5-5 5s-5-2-5-5z" fill="%23ff6b6b"/><path d="M25 15c0-3 2-5 5-5s5 2 5 5c0 2-1 3-3 3s-3-1-3-3z" fill="%23ff6b6b"/><circle cx="8" cy="12" r="2" fill="%23000"/><path d="M15 20l-2-2 2-2" stroke="%23000" stroke-width="1" fill="none"/></svg>') no-repeat center;
-      background-size: contain;
+    .race-plan-obstacle.type-bird {
+      background: linear-gradient(135deg, #fee2e2, #f97316);
     }
 
-    .obstacle.plane {
-      width: 50px;
-      height: 35px;
-      background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 35"><path d="M5 17.5c0-5 8-10 15-10s15 5 15 10c0 3-3 5-7 5s-7-2-7-5z" fill="%23666"/><path d="M25 17.5c0-2 3-4 7-4s7 2 7 4c0 1-1 2-3 2s-3-1-3-2z" fill="%23666"/><circle cx="10" cy="15" r="1.5" fill="%23000"/><path d="M20 25l-3-3 3-3" stroke="%23000" stroke-width="1" fill="none"/></svg>') no-repeat center;
-      background-size: contain;
+    .race-plan-obstacle.type-plane {
+      background: linear-gradient(135deg, #c7d2fe, #6366f1);
+    }
+
+    .race-plan-obstacle.type-cloud {
+      background: linear-gradient(135deg, #e2e8f0, #94a3b8);
+    }
+
+    .race-plan-obstacle.fading {
+      opacity: 0;
+    }
+
+    .race-plan-finish {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      right: 60px;
+      width: 6px;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0.9) 0 12px,
+        rgba(30, 64, 175, 0.9) 12px 24px
+      );
+      box-shadow: 0 0 16px rgba(251, 191, 36, 0.6);
+      opacity: 0.85;
+      pointer-events: none;
+      z-index: 999;
     }
 
     .obstacle.rock {
@@ -1816,274 +1836,557 @@
       gameOver: false
     };
 
-    /* === Глобальные === */
-    const STATE = {
+
+    /* === Plane race runtime === */
+    const planeGame = {
+      active: false,
       started: false,
       finished: false,
-      players: new Map(), // id -> {el, lane, out}
+      players: new Map(),
+      obstacles: new Map(),
+      rafId: null,
+      lastFrame: 0,
+      countdownTimer: null,
+      endTimeout: null
     };
-    const LANES = [0, 1, 2]; // 0=верх, 1=центр, 2=низ
-    
-    // Словарь DOM-элементов препятствий
-    const OBST = new Map(); // id -> { el, lane, x, serverX }
-    const SERVER_OBSTACLE_SYNC = true;
 
-    /* === Вспомогательная: позиционирование по полосам === */
-    function laneCenterY(laneIndex) {
-      // trackEl — контейнер трассы
-      const trackEl = document.getElementById('racePlanArea');
-      if (!trackEl) {
-        console.error('laneCenterY: racePlanArea not found');
-        return 0;
-      }
-      
-      const trackRect = trackEl.getBoundingClientRect();
-      console.log('laneCenterY: trackRect dimensions', trackRect.width, trackRect.height);
+    const PLANE_LANES = 3;
+    const PLANE_MAX_LIVES = 3;
 
-      // Полос 3? Тогда делим высоту на 3 равных коридора:
-      const lanes = 3;
-      const laneH = trackRect.height / lanes;
-
-      // Центр laneIndex (0..lanes-1) в координатах track
-      const center = (laneIndex + 0.5) * laneH;
-      
-      console.log('laneCenterY: lane', laneIndex, 'center', center, 'laneH', laneH);
-
-      // Учтём высоту аватара с масштабом — чтобы «центр» приходился реально по центру
-      // Берём внутренний узел для корректного размера
-      return Math.round(center);
+    function setRaceHeight() {
+      const h = Math.round(Math.max(260, Math.min(window.innerHeight * 0.35, 460)));
+      document.documentElement.style.setProperty('--race-h', `${h}px`);
     }
 
-    function measureAvatar(el) {
-      // ширина/высота внешнего контейнера с учётом скейла внутри
-      const w = el.clientWidth || 128;
-      const h = el.clientHeight || 128;
-      return {w, h};
+    function getRacePlanArea() {
+      return document.getElementById('racePlanArea');
     }
 
-    async function ensureAvatarReady(el) {
-      // дождёмся загрузки всех <img> внутри
-      const imgs = Array.from(el.querySelectorAll('img'));
-      await Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(r => {
-        img.addEventListener('load', r, { once: true });
-        img.addEventListener('error', r, { once: true });
+    function laneCenter(lane) {
+      const area = getRacePlanArea();
+      if (!area) return 0;
+      const laneIndex = Math.max(0, Math.min(PLANE_LANES - 1, Number.isFinite(lane) ? lane : 0));
+      const laneHeight = area.clientHeight / PLANE_LANES;
+      return (laneIndex + 0.5) * laneHeight;
+    }
+
+    function clampLane(lane) {
+      if (!Number.isFinite(lane)) return 1;
+      return Math.max(0, Math.min(PLANE_LANES - 1, Math.round(lane)));
+    }
+
+    function waitForImages(container) {
+      const imgs = Array.from(container.querySelectorAll('img'));
+      return Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(resolve => {
+        img.addEventListener('load', resolve, { once: true });
+        img.addEventListener('error', resolve, { once: true });
       })));
     }
 
-    function preparePlayersBeforeCountdown() {
-      console.log('preparePlayersBeforeCountdown: starting with', racePlanState.participants.size, 'participants');
-      
-      racePlanState.participants.forEach((el, userId) => {
-        console.log('preparePlayersBeforeCountdown: processing participant', userId);
-        
-        if (!STATE.players.has(userId)) {
-          const lane = racePlanState.levels.get(userId) ?? 1; // 0..2
-          STATE.players.set(userId, {
-            el,
-            lane,
-            x: 50,        // стартовый X (настраиваемый)
-            serverX: 50,  // синхронизация с бэком
-            out: false,
-            lives: 3
-          });
-          
-          // Сразу позиционируем аватар на правильной дорожке
-          const { w, h } = measureAvatar(el);
-          const trackEl = document.querySelector('#racePlanArea');
-          const trackRect = trackEl ? trackEl.getBoundingClientRect() : { width: 800, height: 360 };
-          
-          const rawX = 50 - Math.round(w / 2);
-          const x = Math.max(0, Math.min(rawX, trackRect.width - w));
-          const rawY = laneCenterY(lane) - h / 2;
-          const y = Math.max(0, Math.min(rawY, trackRect.height - h));
-          
-          el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-          console.log('preparePlayersBeforeCountdown: created new player for', userId, 'lane', lane);
-        } else {
-          // если уже есть, хотя бы lane обновим на актуальный
-          const p = STATE.players.get(userId);
-          p.lane = racePlanState.levels.get(userId) ?? p.lane ?? 1;
-          console.log('preparePlayersBeforeCountdown: updated existing player for', userId, 'lane', p.lane);
-        }
-      });
-      
-      console.log('preparePlayersBeforeCountdown: completed with', STATE.players.size, 'players');
-    }
-
-    async function placePlayersAtLanesBeforeStart() {
-      console.log('placePlayersAtLanesBeforeStart: starting with', STATE.players.size, 'players');
-      
-      // без плавности — сразу в нужные координаты, чтобы не «прыгало» при старте
-      for (const [userId, p] of STATE.players) {
-        const el = p.el;
-        if (!el) {
-          console.log('placePlayersAtLanesBeforeStart: no element for user', userId);
-          continue;
-        }
-
-        console.log('placePlayersAtLanesBeforeStart: processing user', userId, 'lane', p.lane);
-        
-        await ensureAvatarReady(el);
-        const { w, h } = measureAvatar(el);
-        console.log('placePlayersAtLanesBeforeStart: measured dimensions', w, h);
-
-        const yCenter = laneCenterY(p.lane);
-        // Используем ту же формулу что и для препятствий для синхронизации
-        const rawY = yCenter - h / 2;
-        
-        // Получаем размеры контейнера для ограничений
-        const trackEl = document.querySelector('#racePlanArea');
-        const trackRect = trackEl ? trackEl.getBoundingClientRect() : { width: 800, height: 360 };
-        
-        // Ограничиваем координаты границами контейнера
-        const rawX = (p.x ?? 50) - Math.round(w / 2);
-        const x = Math.max(0, Math.min(rawX, trackRect.width - w));
-        const y = Math.max(0, Math.min(rawY, trackRect.height - h));
-        
-        console.log('placePlayersAtLanesBeforeStart: positioning at', x, y, 'center', yCenter);
-
-        // временно отключим transition у контейнера
-        const prevTransition = el.style.transition;
-        el.style.transition = 'none';
-        el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-
-        // следующий кадр — вернём transition (если он нужен)
-        requestAnimationFrame(() => {
-          el.style.transition = prevTransition || '';
-        });
-      }
-      
-      console.log('placePlayersAtLanesBeforeStart: completed');
-    }
-
-    function getLaneBounds(laneIndex) {
-      const track = document.querySelector('#racePlanArea');
-      const h = track.clientHeight;
-      const laneHeight = h / 3;
-      return {
-        top: laneIndex * laneHeight,
-        bottom: (laneIndex + 1) * laneHeight,
-        center: (laneIndex * laneHeight) + laneHeight / 2
-      };
-    }
-
-    function updateRacePlanAvatarPosition(playerId, laneIndex) {
-      // Обновляем старое состояние
-      racePlanState.levels.set(playerId, laneIndex);
-      
-      // Обновляем новое состояние
-      const p = STATE.players.get(playerId);
-      if (p) {
-        p.lane = Math.max(0, Math.min(2, laneIndex)); // климп
-        const { w, h } = measureAvatar(p.el);
-        
-        // Получаем размеры контейнера для ограничений
-        const trackEl = document.querySelector('#racePlanArea');
-        const trackRect = trackEl ? trackEl.getBoundingClientRect() : { width: 800, height: 360 };
-        
-        // Ограничиваем координаты границами контейнера
-        const rawX = (p.x ?? 50) - Math.round(w / 2);
-        const x = Math.max(0, Math.min(rawX, trackRect.width - w));
-        
-        const rawY = laneCenterY(p.lane) - Math.round(h / 2);
-        const y = Math.max(0, Math.min(rawY, trackRect.height - h));
-        
-        p.el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-      }
-      
-      // Также обновляем старое состояние для совместимости
-      const avatarEl = racePlanState.participants.get(playerId);
-      if (avatarEl) {
-        const { w, h } = measureAvatar(avatarEl);
-        const x = (p?.x ?? 50) - Math.round(w / 2);
-        const y = laneCenterY(laneIndex) - Math.round(h / 2);
-        avatarEl.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-      }
-    }
-    
-    function smoothLevelTransition(playerId, newLevel) {
-      const p = STATE.players.get(playerId);
-      if (!p) return;
-      
-      const oldLevel = p.lane;
-      p.lane = Math.max(0, Math.min(2, newLevel));
-      
-      // Обновляем только lane - игровой цикл сам интерполирует к новой позиции
-      const avatarEl = racePlanState.participants.get(playerId);
-      if (avatarEl) {
-        // Добавляем визуальную обратную связь - небольшое увеличение при движении
-        avatarEl.classList.add('moving');
-        setTimeout(() => {
-          avatarEl.classList.remove('moving');
-        }, 150);
-        
-        console.log(`Avatar ${playerId} moved from level ${oldLevel} to level ${newLevel}`);
-      }
-    }
-
-    // Plane Race State (legacy compatibility)
-    const racePlanState = {
-      isActive: false,
-      participants: new Map(), // userId -> avatar element
-      positions: new Map(), // userId -> { x: number, y: number }
-      levels: new Map(), // userId -> level (0, 1, 2)
-      obstacles: new Map(), // obstacleId -> obstacle element
-      winner: null,
-      gameOver: false
-    };
-
-    function endGame(winnerId, winnerName) {
-      console.log(`Game ended! Winner: ${winnerName} (${winnerId})`);
-      foodGameState.gameOver = true;
-      foodGameState.isActive = false;
-      foodGameState.winner = winnerId;
-      
-      // Show winner message
-      const winnerEl = document.getElementById('foodGameWinner');
-      winnerEl.textContent = `🏆 ${winnerName} ПОБЕДИЛ! Собрал 10 морковок!`;
-      winnerEl.style.display = 'block';
-      
-      // Emit food game finish to server
-      fetch('/api/food-game/finish', {
+    function sendAvatarMetrics(userId, rect) {
+      const halfW = rect.width / 2;
+      const halfH = rect.height / 2;
+      fetch('/api/race-plan/avatar-metrics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ winnerId: winnerId })
-      }).catch(err => console.error('Error finishing food game:', err));
-      
-        // Hide after 5 seconds and clean up
-        setTimeout(() => {
-          winnerEl.style.display = 'none';
-          document.getElementById('foodGameArea').style.display = 'none';
-        
-        // Remove food game avatars and clean up
-        foodGameState.participants.forEach((avatarEl, userId) => {
-          const avatar = avatarEl.querySelector('.avatar');
-          if (avatar) {
-            stopAvatarIntervals(avatar);
-          }
-          avatarEl.remove();
-          
-          // Remove score counter
-          const scoreCounter = document.getElementById(`score-${userId}`);
-          if (scoreCounter) {
-            scoreCounter.remove();
-          }
+        body: JSON.stringify({ userId, halfW, halfH })
+      }).catch(err => console.error('Error sending avatar metrics:', err));
+    }
+
+    function positionPlanePlayer(player, immediate = false) {
+      const area = getRacePlanArea();
+      if (!area) return;
+      const rect = area.getBoundingClientRect();
+      const width = player.width;
+      const height = player.height;
+      const left = Math.max(0, Math.min(player.currentX - width / 2, Math.max(0, rect.width - width)));
+      const top = Math.max(0, Math.min(player.currentY - height / 2, Math.max(0, rect.height - height)));
+
+      if (immediate) {
+        const prev = player.el.style.transition;
+        player.el.style.transition = 'none';
+        player.el.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+        requestAnimationFrame(() => {
+          player.el.style.transition = prev || '';
         });
-        
-        // Remove all carrots
-        foodGameState.carrots.forEach(carrot => carrot.remove());
-        
-        // Clear food game state completely
-        foodGameState.participants.clear();
-        foodGameState.scores.clear();
-        foodGameState.directions.clear();
-        foodGameState.carrots.clear();
-        foodGameState.speedModifiers.clear();
-        foodGameState.winner = null;
-        foodGameState.gameOver = false;
-        foodGameState.isActive = false;
+      } else {
+        player.el.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+      }
+    }
+
+    function positionPlaneObstacle(obstacle, immediate = false) {
+      const area = getRacePlanArea();
+      if (!area) return;
+      const rect = area.getBoundingClientRect();
+      const width = obstacle.width;
+      const height = obstacle.height;
+      const left = Math.max(-width, Math.min(obstacle.currentX - width / 2, rect.width));
+      const centerY = laneCenter(obstacle.lane);
+      const top = Math.max(-height, Math.min(centerY - height / 2, rect.height));
+
+      if (immediate) {
+        const prev = obstacle.el.style.transition;
+        obstacle.el.style.transition = 'none';
+        obstacle.el.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+        requestAnimationFrame(() => {
+          obstacle.el.style.transition = prev || '';
+        });
+      } else {
+        obstacle.el.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+      }
+    }
+
+    function updatePlaneTrackWidth() {
+      const area = getRacePlanArea();
+      if (!area) return;
+      const trackWidth = area.clientWidth;
+      if (!trackWidth) return;
+      fetch('/api/race-plan/update-track-width', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackWidth })
+      }).catch(err => console.error('Error updating track width:', err));
+    }
+
+    function updateLevelIndicator(level) {
+      const indicator = document.getElementById('levelIndicator');
+      if (!indicator) return;
+      indicator.style.display = 'flex';
+      const lines = indicator.querySelectorAll('.level-line');
+      lines.forEach((line, index) => {
+        if (index === level) {
+          line.classList.add('active');
+        } else {
+          line.classList.remove('active');
+        }
+      });
+    }
+
+    function updatePlaneLives(userId, lives) {
+      const player = planeGame.players.get(userId);
+      if (!player) return;
+      const normalized = Math.max(0, Math.min(PLANE_MAX_LIVES, Number.isFinite(lives) ? lives : player.lives));
+      player.lives = normalized;
+      if (player.heartsEl) {
+        player.heartsEl.innerHTML = '';
+        for (let i = 0; i < PLANE_MAX_LIVES; i++) {
+          const heart = document.createElement('span');
+          heart.className = 'heart' + (i >= normalized ? ' empty' : '');
+          player.heartsEl.appendChild(heart);
+        }
+      }
+
+      if (normalized <= 0 && !player.removing) {
+        player.removing = true;
+        player.el.classList.add('eliminated');
+        setTimeout(() => {
+          player.el.remove();
+          planeGame.players.delete(userId);
+        }, 700);
+      }
+    }
+
+    function startPlaneLoop() {
+      if (planeGame.rafId) return;
+      planeGame.lastFrame = 0;
+      planeGame.rafId = requestAnimationFrame(planeLoop);
+    }
+
+    function stopPlaneLoop() {
+      if (planeGame.rafId) {
+        cancelAnimationFrame(planeGame.rafId);
+        planeGame.rafId = null;
+      }
+      planeGame.lastFrame = 0;
+    }
+
+    function planeLoop(timestamp) {
+      if (!planeGame.active) {
+        stopPlaneLoop();
+        return;
+      }
+
+      if (!planeGame.lastFrame) {
+        planeGame.lastFrame = timestamp;
+      }
+      const delta = Math.min(50, timestamp - planeGame.lastFrame);
+      planeGame.lastFrame = timestamp;
+      const smoothing = Math.min(1, delta / 120);
+
+      planeGame.players.forEach(player => {
+        if (player.removing) return;
+        player.currentX += (player.targetX - player.currentX) * Math.max(0.1, 0.18 * smoothing);
+        player.currentY += (player.targetY - player.currentY) * Math.max(0.1, 0.3 * smoothing);
+        positionPlanePlayer(player);
+      });
+
+      planeGame.obstacles.forEach(obstacle => {
+        obstacle.currentX += (obstacle.targetX - obstacle.currentX) * Math.max(0.12, 0.25 * smoothing);
+        obstacle.currentY = laneCenter(obstacle.lane);
+        positionPlaneObstacle(obstacle);
+        if (obstacle.currentX + obstacle.width < -200) {
+          obstacle.el.remove();
+          planeGame.obstacles.delete(obstacle.id);
+        }
+      });
+
+      planeGame.rafId = requestAnimationFrame(planeLoop);
+    }
+
+    function resetPlaneGame() {
+      if (planeGame.countdownTimer) {
+        clearInterval(planeGame.countdownTimer);
+        planeGame.countdownTimer = null;
+      }
+      if (planeGame.endTimeout) {
+        clearTimeout(planeGame.endTimeout);
+        planeGame.endTimeout = null;
+      }
+      stopPlaneLoop();
+      planeGame.players.forEach(player => player.el.remove());
+      planeGame.players.clear();
+      planeGame.obstacles.forEach(obstacle => obstacle.el.remove());
+      planeGame.obstacles.clear();
+      planeGame.active = false;
+      planeGame.started = false;
+      planeGame.finished = false;
+      const area = getRacePlanArea();
+      if (area) {
+        area.classList.remove('active');
+        area.style.display = 'none';
+        area.innerHTML = '';
+      }
+      const countdownEl = document.getElementById('racePlanCountdown');
+      if (countdownEl) {
+        countdownEl.style.display = 'none';
+        countdownEl.textContent = '';
+      }
+      const winnerEl = document.getElementById('racePlanWinner');
+      if (winnerEl) {
+        winnerEl.style.display = 'none';
+        winnerEl.textContent = '';
+      }
+      const indicator = document.getElementById('levelIndicator');
+      if (indicator) {
+        indicator.style.display = 'none';
+        indicator.querySelectorAll('.level-line').forEach(line => line.classList.remove('active'));
+      }
+    }
+
+    async function createPlanePlayer(userId, lane) {
+      if (!userId) return;
+      const area = getRacePlanArea();
+      if (!area) return;
+
+      const assets = await loadUserAvatar(userId);
+
+      const wrapper = document.createElement('div');
+      wrapper.id = `race-plan-avatar-${userId}`;
+      wrapper.className = 'race-plan-avatar';
+      wrapper.dataset.userId = userId;
+
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.dataset.userId = userId;
+
+      const baseLayers = ['body', 'face', 'clothes', 'others'];
+      baseLayers.forEach((layer, index) => {
+        const img = document.createElement('img');
+        img.className = 'layer static';
+        img.alt = layer;
+        img.src = assets[layer];
+        if (index === 0) {
+          img.classList.add('hitbox-target');
+        }
+        avatar.appendChild(img);
+      });
+
+      wrapper.appendChild(avatar);
+
+      const livesDisplay = document.createElement('div');
+      livesDisplay.className = 'lives-display';
+      wrapper.appendChild(livesDisplay);
+
+      area.appendChild(wrapper);
+
+      await waitForImages(wrapper);
+      const rect = avatar.getBoundingClientRect();
+
+      const player = {
+        id: userId,
+        el: wrapper,
+        avatarEl: avatar,
+        heartsEl: livesDisplay,
+        lane: clampLane(lane ?? 1),
+        targetLane: clampLane(lane ?? 1),
+        currentX: 50,
+        targetX: 50,
+        currentY: laneCenter(lane ?? 1),
+        targetY: laneCenter(lane ?? 1),
+        width: rect.width,
+        height: rect.height,
+        lives: PLANE_MAX_LIVES,
+        removing: false
+      };
+
+      planeGame.players.set(userId, player);
+      updatePlaneLives(userId, PLANE_MAX_LIVES);
+      positionPlanePlayer(player, true);
+      sendAvatarMetrics(userId, rect);
+    }
+
+    function startPlaneCountdown(seconds) {
+      const countdownEl = document.getElementById('racePlanCountdown');
+      if (!countdownEl) {
+        beginPlaneRace();
+        return;
+      }
+
+      let remaining = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 3;
+      countdownEl.style.display = 'block';
+      countdownEl.textContent = remaining;
+
+      if (planeGame.countdownTimer) {
+        clearInterval(planeGame.countdownTimer);
+      }
+
+      startPlaneLoop();
+
+      planeGame.countdownTimer = setInterval(() => {
+        remaining -= 1;
+        if (remaining > 0) {
+          countdownEl.textContent = remaining;
+          return;
+        }
+
+        clearInterval(planeGame.countdownTimer);
+        planeGame.countdownTimer = null;
+        countdownEl.style.display = 'none';
+        beginPlaneRace();
+      }, 1000);
+    }
+
+    function beginPlaneRace() {
+      if (planeGame.started) return;
+      planeGame.started = true;
+      updatePlaneTrackWidth();
+      startPlaneLoop();
+    }
+
+    async function startRacePlan(data) {
+      console.log('Starting plane race with data:', data);
+      resetPlaneGame();
+      setRaceHeight();
+      const area = getRacePlanArea();
+      if (!area) {
+        console.error('racePlanArea element not found');
+        return;
+      }
+
+      planeGame.active = true;
+      planeGame.finished = false;
+      area.innerHTML = '';
+      area.classList.add('active');
+      area.style.display = 'block';
+
+      const finish = document.createElement('div');
+      finish.className = 'race-plan-finish';
+      area.appendChild(finish);
+
+      const indicator = document.getElementById('levelIndicator');
+      if (indicator) {
+        indicator.style.display = 'flex';
+      }
+
+      const participants = Array.isArray(data?.participants) ? data.participants : [];
+      for (const userId of participants) {
+        const lane = data?.levels && data.levels[userId] !== undefined ? data.levels[userId] : 1;
+        await createPlanePlayer(userId, lane);
+      }
+
+      if (data?.lives) {
+        Object.entries(data.lives).forEach(([userId, lives]) => updatePlaneLives(userId, lives));
+      }
+
+      if (data?.positions) {
+        Object.entries(data.positions).forEach(([userId, pos]) => setPlanePosition(userId, pos));
+      }
+
+      updatePlaneTrackWidth();
+      startPlaneCountdown(data && Number.isFinite(+data.countdown) ? +data.countdown : 3);
+    }
+
+    function setPlanePosition(userId, position = {}) {
+      const player = planeGame.players.get(userId);
+      if (!player) return;
+      if (position && Number.isFinite(position.x)) {
+        player.targetX = position.x;
+        if (!Number.isFinite(player.currentX)) {
+          player.currentX = position.x;
+        }
+      }
+      positionPlanePlayer(player);
+    }
+
+    function setPlaneLane(userId, lane) {
+      const player = planeGame.players.get(userId);
+      if (!player) return;
+      const clamped = clampLane(lane);
+      player.targetLane = clamped;
+      player.targetY = laneCenter(clamped);
+      updateLevelIndicator(clamped);
+    }
+
+    function spawnPlaneObstacle(data) {
+      const area = getRacePlanArea();
+      if (!area || !data?.id) return;
+      if (planeGame.obstacles.has(data.id)) {
+        updateObstacleTargets([data]);
+        return;
+      }
+
+      const el = document.createElement('div');
+      el.className = 'race-plan-obstacle';
+      if (data.type) {
+        el.classList.add(`type-${data.type}`);
+      }
+      el.dataset.id = data.id;
+      area.appendChild(el);
+
+      const obstacle = {
+        id: data.id,
+        el,
+        lane: clampLane(data.lane ?? 1),
+        width: el.offsetWidth || 74,
+        height: el.offsetHeight || 48,
+        currentX: Number.isFinite(data.x) ? data.x : area.clientWidth + 150,
+        targetX: Number.isFinite(data.x) ? data.x : area.clientWidth + 150
+      };
+      planeGame.obstacles.set(data.id, obstacle);
+      positionPlaneObstacle(obstacle, true);
+    }
+
+    function updateObstacleTargets(list) {
+      if (!Array.isArray(list)) return;
+      list.forEach(data => {
+        if (!data || !data.id) return;
+        let obstacle = planeGame.obstacles.get(data.id);
+        if (!obstacle) {
+          spawnPlaneObstacle(data);
+          obstacle = planeGame.obstacles.get(data.id);
+        }
+        if (!obstacle) return;
+        obstacle.lane = clampLane(data.lane ?? obstacle.lane ?? 1);
+        obstacle.targetX = Number.isFinite(data.x) ? data.x : obstacle.targetX;
+        obstacle.targetY = laneCenter(obstacle.lane);
+      });
+    }
+
+    function removePlaneObstacle(id) {
+      const obstacle = planeGame.obstacles.get(id);
+      if (!obstacle) return;
+      obstacle.el.classList.add('fading');
+      setTimeout(() => {
+        obstacle.el.remove();
+        planeGame.obstacles.delete(id);
+      }, 250);
+    }
+
+    async function handlePlaneMonitoring(data) {
+      if (!data) return;
+      const participants = Array.isArray(data.participants) ? data.participants : [];
+      for (const userId of participants) {
+        if (!planeGame.players.has(userId)) {
+          const lane = data?.levels && data.levels[userId] !== undefined ? data.levels[userId] : 1;
+          await createPlanePlayer(userId, lane);
+        }
+        if (data.positions && data.positions[userId]) {
+          setPlanePosition(userId, data.positions[userId]);
+        }
+        if (data.levels && data.levels[userId] !== undefined) {
+          setPlaneLane(userId, data.levels[userId]);
+        }
+        if (data.lives && data.lives[userId] !== undefined) {
+          updatePlaneLives(userId, data.lives[userId]);
+        }
+      }
+    }
+
+    async function handlePlaneRaceState(state) {
+      if (!state) return;
+      planeGame.started = !!state.started;
+      planeGame.finished = !!state.finished;
+      if (planeGame.started) {
+        startPlaneLoop();
+      }
+
+      const players = Array.isArray(state.players) ? state.players : [];
+      for (const playerState of players) {
+        if (!playerState || !playerState.id) continue;
+        if (!planeGame.players.has(playerState.id)) {
+          await createPlanePlayer(playerState.id, playerState.lane ?? 1);
+        }
+        setPlaneLane(playerState.id, playerState.lane ?? 1);
+        setPlanePosition(playerState.id, { x: playerState.x });
+        updatePlaneLives(playerState.id, playerState.lives ?? PLANE_MAX_LIVES);
+        if (playerState.out) {
+          updatePlaneLives(playerState.id, 0);
+        }
+      }
+    }
+
+    function handlePlaneCollision(userId, lives) {
+      const player = planeGame.players.get(userId);
+      if (!player) return;
+      player.el.classList.add('hit');
+      setTimeout(() => player.el.classList.remove('hit'), 450);
+      updatePlaneLives(userId, lives);
+    }
+
+    function handlePlaneRaceEnd(data) {
+      planeGame.finished = true;
+      planeGame.started = false;
+      const winnerEl = document.getElementById('racePlanWinner');
+      if (!winnerEl) return;
+
+      if (data?.noWinners) {
+        winnerEl.textContent = '💀 ПОБЕДИТЕЛЕЙ НЕТ!';
+        winnerEl.style.color = '#ff6b6b';
+      } else if (data?.winnerName) {
+        winnerEl.textContent = `🏆 ${data.winnerName} ПОБЕДИЛ!`;
+        winnerEl.style.color = '#ffd700';
+      } else {
+        winnerEl.textContent = '';
+      }
+
+      winnerEl.style.display = 'block';
+
+      if (planeGame.endTimeout) {
+        clearTimeout(planeGame.endTimeout);
+      }
+
+      planeGame.endTimeout = setTimeout(() => {
+        resetPlaneGame();
       }, 5000);
     }
+
+    function handlePlaneResize() {
+      setRaceHeight();
+      if (!planeGame.active) return;
+      planeGame.players.forEach(player => {
+        player.targetY = laneCenter(player.targetLane ?? player.lane);
+        player.currentY = player.targetY;
+        positionPlanePlayer(player, true);
+      });
+      planeGame.obstacles.forEach(obstacle => {
+        obstacle.currentY = laneCenter(obstacle.lane);
+        positionPlaneObstacle(obstacle, true);
+      });
+      updatePlaneTrackWidth();
+    }
+
+    window.addEventListener('resize', handlePlaneResize);
+    setRaceHeight();
 
     function startFoodGame(data) {
       console.log('Starting food game with data:', data);
@@ -2801,716 +3104,6 @@
       }, 5000);
     }
 
-    // Plane Race Functions
-    async function startRacePlan(data) {
-      console.log('Starting plane race with data:', data);
-      console.log('Data participants:', data.participants);
-      console.log('Data countdown:', data.countdown);
-      racePlanState.isActive = true;
-      racePlanState.gameOver = false;
-      racePlanState.participants.clear();
-      racePlanState.positions.clear();
-      racePlanState.levels.clear();
-      racePlanState.obstacles.clear();
-      racePlanState.winner = null;
-
-      // Remove all existing avatars from screen
-      const existingAvatars = document.querySelectorAll('.race-plan-avatar');
-      existingAvatars.forEach(avatar => avatar.remove());
-      console.log('Removed all existing avatars for race plan');
-
-      // Show plane race area
-      const racePlanArea = document.getElementById('racePlanArea');
-      if (racePlanArea) {
-        racePlanArea.style.display = 'block';
-        // Принудительно устанавливаем высоту если она нулевая
-        if (racePlanArea.clientHeight === 0) {
-          racePlanArea.style.height = 'var(--race-h)'; // вместо 100vh
-          console.log('Fixed racePlanArea height to var(--race-h)');
-        }
-        console.log('Plane race area displayed, computed style:', window.getComputedStyle(racePlanArea).display);
-        console.log('Plane race area dimensions:', racePlanArea.clientWidth, racePlanArea.clientHeight);
-      } else {
-        console.error('racePlanArea element not found!');
-      }
-      
-      const levelIndicator = document.getElementById('levelIndicator');
-      if (levelIndicator) {
-        levelIndicator.style.display = 'flex';
-        console.log('Level indicator displayed');
-      } else {
-        console.error('levelIndicator element not found!');
-      }
-
-      // Create plane race avatars for participants
-      const createAvatars = async () => {
-        console.log('Creating avatars for participants:', data.participants);
-        if (!data.participants || data.participants.length === 0) {
-          console.log('No participants to create avatars for');
-          return;
-        }
-        for (let index = 0; index < data.participants.length; index++) {
-          const userId = data.participants[index];
-          console.log(`Creating avatar for participant ${index}: ${userId}`);
-          await createPlaneRaceAvatar(userId, index);
-        }
-      };
-      await createAvatars();
-
-      // Ждём пока придут уровни хотя бы 200–300мс (или пока levels не заполнится)
-      await new Promise(r => setTimeout(r, 250));
-      
-      // После создания аватаров - подготовим STATE.players с начальными полосами
-      console.log('startRacePlan: preparing players before countdown');
-      preparePlayersBeforeCountdown();
-      
-      // Правильно позиционируем аватары до первого кадра
-      console.log('startRacePlan: placing players at lanes before start');
-      await placePlayersAtLanesBeforeStart();
-
-      // Start countdown
-      console.log('startRacePlan: starting countdown');
-      startPlaneRaceCountdown(Number.isFinite(+data.countdown) ? +data.countdown : 3);
-    }
-
-    async function createPlaneRaceAvatar(userId, index) {
-      // Load user avatar data
-      const userAssets = await loadUserAvatar(userId);
-      
-      // Create new avatar element
-      const racePlanAvatar = document.createElement('div');
-      racePlanAvatar.id = `race-plan-avatar-${userId}`;
-      racePlanAvatar.className = 'race-plan-avatar';
-      racePlanAvatar.style.position = 'absolute';
-      racePlanAvatar.style.zIndex = '1000';
-      // Не устанавливаем left - будет позиционироваться через transform в placePlayersAtLanesBeforeStart
-
-      const avatar = document.createElement('div');
-      avatar.className = 'avatar';
-      avatar.dataset.userId = userId;
-
-      // Create static layers
-      const baseLayers = ['body', 'face', 'clothes', 'others'];
-      baseLayers.forEach((layer, index) => {
-        const img = document.createElement('img');
-        img.className = 'layer static';
-        img.alt = layer;
-        img.src = userAssets[layer];
-        // Первое изображение (body) помечаем как hitbox-target
-        if (index === 0) {
-          img.classList.add('hitbox-target');
-        }
-        avatar.appendChild(img);
-      });
-
-      racePlanAvatar.appendChild(avatar);
-
-      // Create lives display (hearts)
-      const livesDisplay = document.createElement('div');
-      livesDisplay.className = 'lives-display';
-      livesDisplay.id = `lives-${userId}`;
-      racePlanAvatar.appendChild(livesDisplay);
-
-      document.getElementById('racePlanArea').appendChild(racePlanAvatar);
-
-      // Store in plane race state (устанавливаем levels ДО позиционирования)
-      racePlanState.participants.set(userId, racePlanAvatar);
-      racePlanState.positions.set(userId, { x: 50, y: 0 });
-      racePlanState.levels.set(userId, 1); // Start at middle level
-      racePlanState.lives.set(userId, 3); // Start with 3 lives
-
-      // Set initial state
-      setAvatarState(avatar, 'static');
-
-      // 1) Сначала — размеры контейнера от реального спрайта
-      const img = avatar.querySelector('.layer.static');
-      const SCALE = 0.4;
-      const naturalW = img?.naturalWidth || 140;
-      const naturalH = img?.naturalHeight || 180;
-      racePlanAvatar.style.setProperty('--avatar-w', `${Math.round(naturalW * SCALE)}px`);
-      racePlanAvatar.style.setProperty('--avatar-h', `${Math.round(naturalH * SCALE)}px`);
-
-      // Инициализируем позицию для движения
-      racePlanAvatar._x = 50;
-      racePlanAvatar.style.position = 'absolute';
-
-      // Инициализируем отображение жизней
-      updateLivesDisplay(userId, 3);
-
-      // Отправляем метрики хитбокса на сервер
-      setTimeout(() => {
-        const { halfW, halfH } = measureHalfSizes(racePlanAvatar);
-        fetch('/api/race-plan/avatar-metrics', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, halfW, halfH })
-        }).catch(console.error);
-      }, 100);
-
-      console.log(`Created plane race avatar for user: ${userId}`);
-    }
-
-
-    function updateLevelIndicator(activeLevel) {
-      const levelLines = document.querySelectorAll('.level-line');
-      levelLines.forEach((line, index) => {
-        if (index === activeLevel) {
-          line.classList.add('active');
-        } else {
-          line.classList.remove('active');
-        }
-      });
-    }
-
-    function startPlaneRaceCountdown(count) {
-      const countdownEl = document.getElementById('racePlanCountdown');
-      countdownEl.style.display = 'block';
-      
-      let current = count;
-      const interval = setInterval(() => {
-        if (current > 0) {
-          countdownEl.textContent = current;
-          current--;
-        } else {
-          clearInterval(interval);
-          countdownEl.style.display = 'none';
-          setTimeout(() => {
-            startPlaneRaceMovement();
-          }, 1000);
-        }
-      }, 1000);
-    }
-
-    /* === Игровой цикл с requestAnimationFrame === */
-    let rafId = null;
-    let lastFrameTime = 0;
-    const TARGET_FPS = 60;
-    const FRAME_TIME = 1000 / TARGET_FPS; // ~16.7ms
-    const AVATAR_SPEED = 1.5; // пикселей за кадр (уменьшено в 2 раза)
-    
-    function gameLoop(currentTime) {
-      // ранний выход для неактивной гонки
-      if (!STATE.started || STATE.finished) {
-        // console.log('Game loop: early return, started:', STATE.started, 'finished:', STATE.finished);
-        rafId = requestAnimationFrame(gameLoop);
-        return;
-      }
-      
-      // console.log('Game loop running: players=', STATE.players.size, 'obstacles=', OBST.size);
-
-      // Ограничиваем FPS и защищаемся от лагов
-      const deltaTime = Math.min(50, currentTime - lastFrameTime || FRAME_TIME);
-      lastFrameTime = currentTime;
-
-      // Плавная интерполяция движения аватаров к серверным позициям
-      STATE.players.forEach((p, id) => {
-        if (p.out) return;
-        
-        // Интерполируем к серверной позиции
-        if (p.serverX !== undefined) {
-          p.x = p.x + (p.serverX - p.x) * 0.15; // коэффициент сглаживания
-        }
-        
-        // Рендерим позицию аватара с ограничениями по границам
-        const { w, h } = measureAvatar(p.el);
-        
-        // Получаем размеры контейнера
-        const trackEl = document.querySelector('#racePlanArea');
-        const trackRect = trackEl ? trackEl.getBoundingClientRect() : { width: 800, height: 360 };
-        
-        // Ограничиваем X координату границами контейнера
-        const rawX = (p.x ?? 50) - Math.round(w / 2);
-        const x = Math.max(0, Math.min(rawX, trackRect.width - w));
-        
-        // Ограничиваем Y координату границами контейнера
-        // Используем ту же формулу что и для препятствий для синхронизации
-        const rawY = laneCenterY(p.lane) - h / 2;
-        const y = Math.max(0, Math.min(rawY, trackRect.height - h));
-
-        // ВАЖНО: здесь только translate, без scale/rotate!
-        p.el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-        
-        // Обновляем dataset для отладки
-        p.el.dataset.x = x.toFixed(1);
-        p.el.dataset.lane = p.lane;
-        
-        
-        // Проверяем финиш
-        checkRacePlanFinish(p, id);
-      });
-
-      // препятствия двигает сервер; здесь только интерполяция к серверным позициям
-      if (SERVER_OBSTACLE_SYNC) {
-        OBST.forEach(rec => {
-          // Лёгкая интерполяция к serverX
-          rec.x = rec.x + (rec.serverX - rec.x) * 0.25; // коэффициент сглаживания
-          const y = laneCenterY(rec.lane);
-          const el = rec.el;
-          
-        // Используем transform для плавной анимации
-        el.style.transform = `translate3d(${rec.x.toFixed(1)}px, ${y - el.clientHeight/2}px, 0)`;
-          
-          // Обновляем dataset для отладки
-          el.dataset.x = rec.x.toFixed(1);
-          el.dataset.lane = rec.lane;
-
-          // удалить за экраном
-          if (rec.x + el.clientWidth < -50) {
-            el.remove();
-            OBST.delete(el.dataset.id);
-          }
-        });
-      }
-
-      // Проверяем коллизии (аналогично игре "Собери морковку")
-      // checkRacePlanCollisions(); // Отключено - коллизии обрабатываются только на сервере
-
-      // Продолжаем цикл
-      rafId = requestAnimationFrame(gameLoop);
-    }
-    
-    function startLoop() {
-      console.log('=== STARTING GAME LOOP ===');
-      cancelAnimationFrame(rafId);
-      lastFrameTime = 0;
-      rafId = requestAnimationFrame(gameLoop);
-      console.log('Game loop started with rafId:', rafId);
-    }
-    
-    function stopLoop() {
-      cancelAnimationFrame(rafId);
-      rafId = null;
-    }
-
-    // Функция для установки динамической высоты race-plan
-    function setRaceHeight() {
-      // Фиксированная, но «разумная» высота от размера окна:
-      // от 260px до 460px, целимся примерно в 35% высоты окна
-      const h = Math.round(Math.max(260, Math.min(window.innerHeight * 0.35, 460)));
-      document.documentElement.style.setProperty('--race-h', h + 'px');
-    }
-
-    // Инициализация высоты при загрузке
-    window.addEventListener('resize', setRaceHeight);
-    setRaceHeight();
-
-    // На ресайз — перерасставить по центрам полос и пересчитать позиции сердечек
-    window.addEventListener('resize', () => {
-      // Обновляем высоту race-plan при ресайзе
-      setRaceHeight();
-      
-      // 1) Пересчитать Y препятствий (у тебя уже есть)
-      OBST.forEach(rec => {
-        const y = laneCenterY(rec.lane);
-        rec.el.style.transform =
-          `translate3d(${Math.round(rec.x)}px, ${y - rec.el.clientHeight/2}px, 0)`;
-      });
-
-      // 2) Пересчитать Y аватаров (вот этого не хватало)
-      STATE.players.forEach((p) => {
-        if (!p || !p.el || p.out) return;
-        const { w, h } = measureAvatar(p.el);
-        
-        // Получаем размеры контейнера
-        const trackEl = document.querySelector('#racePlanArea');
-        const trackRect = trackEl ? trackEl.getBoundingClientRect() : { width: 800, height: 360 };
-        
-        // Ограничиваем X координату границами контейнера
-        const rawX = (p.x ?? 50) - Math.round(w / 2);
-        const x = Math.max(0, Math.min(rawX, trackRect.width - w));
-        
-        // Ограничиваем Y координату границами контейнера
-        // Используем ту же формулу что и для препятствий для синхронизации
-        const rawY = laneCenterY(p.lane) - h / 2;
-        const y = Math.max(0, Math.min(rawY, trackRect.height - h));
-        
-        p.el.style.transition = 'none';                           // без анимации
-        p.el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-        // вернуть transition на место на следующий кадр, если он был
-        requestAnimationFrame(() => { p.el.style.transition = ''; });
-      });
-
-      // 3) Перерисовать «границы дорожек» для наглядности/консистентности
-      createLaneBoundaries();
-      
-      // 4) И обновить ширину трека на сервере (у тебя это уже есть)
-      updateTrackWidth();
-    });
-
-    function updateTrackWidth() {
-      const trackEl = document.querySelector('#racePlanArea');
-      if (trackEl) {
-        const trackWidth = trackEl.clientWidth;
-        // Отправляем обновление ширины трека на сервер
-        fetch('/api/race-plan/update-track-width', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trackWidth })
-        }).catch(err => console.error('Error updating track width:', err));
-      }
-    }
-
-    function startPlaneRaceMovement() {
-      // Обновляем ширину трека на сервере
-      updateTrackWidth();
-      
-      // Синхронизируем старое состояние с новым
-      racePlanState.participants.forEach((avatarEl, userId) => {
-        const existingEl = document.getElementById(`race-plan-avatar-${userId}`);
-        if (existingEl && !STATE.players.has(userId)) {
-          STATE.players.set(userId, {
-            el: existingEl,
-            lane: racePlanState.levels.get(userId) || 1,
-            x: 50, // начальная позиция
-            serverX: 50, // целевая позиция
-            out: false
-          });
-        }
-      });
-      
-      // Создаем невидимые границы дорожек (для отладки)
-      createLaneBoundaries();
-      
-      // Жёсткий ресет флагов перед запуском цикла
-      STATE.finished = false;
-      STATE.started = true;
-      startLoop(); // запускаем игровой цикл для движения аватаров
-    }
-
-    function createLaneBoundaries() {
-      // Удаляем старые границы если есть
-      document.querySelectorAll('.lane-boundary, .finish-line').forEach(el => el.remove());
-      
-      const track = document.querySelector('#racePlanArea');
-      const h = track.clientHeight;
-      const laneHeight = h / 3;
-      
-      // Создаем невидимые границы дорожек
-      for (let i = 0; i < 3; i++) {
-        const boundary = document.createElement('div');
-        boundary.className = 'lane-boundary';
-        boundary.style.position = 'absolute';
-        boundary.style.left = '0';
-        boundary.style.right = '0';
-        boundary.style.height = '1px';
-        boundary.style.top = `${(i + 1) * laneHeight}px`;
-        boundary.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'; // едва заметные границы
-        boundary.style.pointerEvents = 'none';
-        boundary.style.zIndex = '500';
-        track.appendChild(boundary);
-      }
-      
-      // Создаем финишную линию
-      const finishLine = document.createElement('div');
-      finishLine.className = 'finish-line';
-      finishLine.style.position = 'absolute';
-      finishLine.style.right = '0';
-      finishLine.style.top = '0';
-      finishLine.style.bottom = '0';
-      finishLine.style.width = '4px';
-      finishLine.style.backgroundColor = '#ffd700'; // золотой цвет
-      finishLine.style.boxShadow = '0 0 10px #ffd700';
-      finishLine.style.pointerEvents = 'none';
-      finishLine.style.zIndex = '600';
-      finishLine.style.animation = 'finishLinePulse 2s ease-in-out infinite';
-      track.appendChild(finishLine);
-    }
-
-    /* === Клиентские коллизии — отключить === */
-    // если у тебя где-то было checkPlaneRaceCollisions(), просто убери вызовы.
-    // Истина теперь всегда на сервере. На клиенте — только анимация и отображение.
-    function checkPlaneRaceCollisions() {
-      // Отключено - коллизии теперь только на сервере
-      return;
-    }
-
-    /* === Получение событий с сервера === */
-    // События теперь приходят через SSE (Server-Sent Events)
-    // Обработчик находится в es.addEventListener('racePlanState', ...)
-
-    // сервер прислал коллизию конкретного игрока
-    window.addEventListener('racePlanCollision', (ev) => {
-      const { playerId, lives } = ev.detail;
-      console.log(`Collision event received for player ${playerId}, lives: ${lives}`);
-      
-      const p = STATE.players.get(playerId);
-      if (!p) {
-        console.log(`Player ${playerId} not found in STATE.players`);
-        return;
-      }
-
-      // Обновляем отображение жизней
-      if (lives !== undefined) {
-        updateLivesDisplay(playerId, lives);
-      }
-
-      // Добавляем анимацию коллизии к внутреннему элементу .avatar
-      const inner = p.el.querySelector('.avatar');
-      if (!inner) return;
-      
-      inner.classList.add('collision');
-      setTimeout(() => {
-        inner.classList.remove('collision');
-      }, 500);
-    });
-
-
-    function createObstacleEl(id, lane, xStart, type) {
-      const track = document.querySelector('#racePlanArea');
-
-      const el = document.createElement('div');
-      el.className = `obstacle ${type}`;
-      el.dataset.id = id;
-
-      const L = Math.max(0, Math.min(2, (lane|0))); // clamp lane
-      el.dataset.lane = String(L);
-
-      // начальные координаты
-      const y = laneCenterY(L);
-      const x = xStart || track.clientWidth + 100;
-      
-      // Используем translate3d для аппаратного ускорения
-      el.style.transform = `translate3d(${Math.round(x)}px, ${y - el.clientHeight/2}px, 0)`;
-      
-      // Добавляем оптимизации для плавной анимации
-      el.style.willChange = 'transform';
-      el.style.backfaceVisibility = 'hidden';
-      el.style.perspective = '1000px';
-
-      track.appendChild(el);
-      return el;
-    }
-
-
-
-    function checkRacePlanFinish(player, playerId) {
-      if (player.out) return;
-      
-      const trackEl = document.querySelector('#racePlanArea');
-      if (!trackEl) return;
-      
-      const trackRect = trackEl.getBoundingClientRect();
-      const { w } = measureAvatar(player.el);
-      
-      // Финиш по ПРАВОМУ краю аватара
-      const currentLeft = (player.x || 0) - Math.round(w / 2); // левый край
-      const rightEdge = currentLeft + w;            // правый край аватара
-      
-      if (rightEdge >= trackRect.width) {
-        // Финиш! Отправляем событие на сервер
-        fetch('/api/race-plan/finish', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ winnerId: playerId })
-        }).catch(err => console.error('Error finishing race plan:', err));
-        
-        console.log(`Player ${playerId} finished the race! Right edge: ${rightEdge}, Track width: ${trackRect.width}`);
-      }
-    }
-
-    function checkRacePlanCollisions() {
-      // Клиент больше не считает коллизии — истина на сервере
-      return;
-    }
-
-    function measureHalfSizes(el, shrink = 0.12) {
-      const t = el.querySelector('.hitbox-target') || el;
-      const r = t.getBoundingClientRect();
-      // чуть «урежем» от прозрачных полей PNG
-      const hw = Math.max(8, Math.round((r.width  * (1 - shrink*2)) / 2));
-      const hh = Math.max(8, Math.round((r.height * (1 - shrink*2)) / 2));
-      return { halfW: hw, halfH: hh };
-    }
-
-    function spawnObstacle(data) {
-      // Используем новую функцию создания препятствий
-      const el = createObstacleEl(data.id, data.lane, data.x, data.type);
-      OBST.set(data.id, { el, lane: data.lane, x: data.x, serverX: data.x });
-      
-      console.log(`Spawning obstacle ${data.id} in lane ${data.lane} at x:${data.x}, type: ${data.type}`);
-    }
-
-    function removeObstacle(obstacleId) {
-      const rec = OBST.get(obstacleId);
-      if (rec) {
-        // Добавляем анимацию исчезновения
-        rec.el.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
-        rec.el.style.opacity = '0';
-        rec.el.style.transform = `${rec.el.style.transform} scale(0.5)`;
-        
-        // Удаляем после анимации
-        setTimeout(() => {
-          rec.el.remove();
-          OBST.delete(obstacleId);
-        }, 300);
-      }
-    }
-
-    function updateRacePlanLevel(userId, level) {
-      // нормализуем 0..2
-      const newLane = Math.max(0, Math.min(2, level));
-      racePlanState.levels.set(userId, newLane);
-
-      const p = STATE.players.get(userId);
-      if (p) p.lane = newLane;
-
-      if (!STATE.started) {
-        // можно сразу переставить без анимации, чтобы игрок «в отсчёте» стоял уже на нужной полосе
-        const el = p?.el;
-        if (el) {
-          const { w, h } = measureAvatar(el);
-          const y = laneCenterY(newLane) - Math.round(h/2);
-          const x = (p?.x ?? 50) - Math.round(w/2);
-          const prev = el.style.transition;
-          el.style.transition = 'none';
-          el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-          requestAnimationFrame(() => (el.style.transition = prev || ''));
-        }
-        console.log(`Level ${newLane} set for user ${userId} (game not started yet)`);
-        return; // до старта — не дёргаем плавные анимации
-      }
-
-      // после старта — просто смена lane, gameLoop сам перерисует
-      smoothLevelTransition(userId, newLane);
-      console.log(`Updated level for user ${userId}: ${newLane}`);
-      
-      // Update level indicator to show current level
-      updateLevelIndicator(newLane);
-    }
-
-    function updateRacePlanPosition(userId, position) {
-      racePlanState.positions.set(userId, position);
-      const level = racePlanState.levels.get(userId) || 1;
-      
-      // Дадим движку знать целевую позицию по X:
-      const p = STATE.players.get(userId);
-      if (p) p.serverX = position.x;
-      
-      updateRacePlanAvatarPosition(userId, level);
-      console.log(`Updated position for user ${userId}:`, position);
-    }
-
-    function handleRacePlanCollision(playerId, lives) {
-      console.log(`[overlay] handleRacePlanCollision called for player: ${playerId}, lives: ${lives}`);
-      
-      // Обновляем отображение жизней
-      updateLivesDisplay(playerId, lives);
-      
-      // Добавляем анимацию коллизии к внутреннему элементу .avatar
-      const avatarEl = racePlanState.participants.get(playerId);
-      if (!avatarEl) return;
-      
-      const inner = avatarEl.querySelector('.avatar');
-      if (!inner) return;
-      
-      inner.classList.add('collision');
-      setTimeout(() => {
-        inner.classList.remove('collision');
-      }, 500);
-      
-      // Если жизни закончились, помечаем игрока как исключенного
-      if (lives <= 0) {
-        const player = STATE.players.get(playerId);
-        if (player) {
-          player.out = true;
-          avatarEl.classList.add('out');
-          avatarEl.dataset.dead = '1';
-        }
-      }
-    }
-
-    function createLivesDisplay(userId, lives) {
-      const avatarEl = racePlanState.participants.get(userId);
-      if (!avatarEl) return;
-      
-      const livesDisplay = avatarEl.querySelector('.lives-display');
-      if (!livesDisplay) return;
-      
-      // Очищаем предыдущие сердечки
-      livesDisplay.innerHTML = '';
-      
-      // Создаем сердечки (максимум 3)
-      const maxLives = 3;
-      for (let i = 0; i < maxLives; i++) {
-        const heart = document.createElement('div');
-        heart.className = 'heart';
-        if (i >= lives) {
-          heart.classList.add('empty');
-        }
-        livesDisplay.appendChild(heart);
-      }
-    }
-    
-    function updateLivesDisplay(userId, lives) {
-      createLivesDisplay(userId, lives);
-    }
-
-    function handleRacePlanCollision(userId, lives) {
-      const avatarEl = racePlanState.participants.get(userId);
-      if (!avatarEl) return;
-      
-      // Обновляем отображение жизней
-      updateLivesDisplay(userId, lives);
-      
-      // Добавляем анимацию коллизии к внутреннему элементу .avatar
-      const inner = avatarEl.querySelector('.avatar');
-      if (!inner) return;
-      
-      inner.classList.add('collision');
-      setTimeout(() => {
-        inner.classList.remove('collision');
-      }, 500);
-      
-      console.log(`Collision animation for user ${userId}, lives: ${lives}`);
-    }
-
-    function endPlaneRace() {
-      racePlanState.isActive = false;
-      racePlanState.gameOver = true;
-      STATE.started = false;
-      STATE.finished = true;
-      
-      // Останавливаем игровой цикл
-      stopLoop();
-      
-      // Hide game area
-      document.getElementById('racePlanArea').style.display = 'none';
-      document.getElementById('levelIndicator').style.display = 'none';
-      document.getElementById('racePlanWinner').style.display = 'none';
-      
-      // Clean up
-      racePlanState.participants.forEach(avatarEl => {
-        const avatar = avatarEl.querySelector('.avatar');
-        if (avatar) {
-          stopAvatarIntervals(avatar);
-        }
-        // Remove any lives displays (hearts) that might still exist
-        const livesDisplay = avatarEl.querySelector('.lives-display');
-        if (livesDisplay) {
-          livesDisplay.remove();
-        }
-        avatarEl.remove();
-      });
-      
-      racePlanState.obstacles.forEach(obstacle => obstacle.remove());
-      
-      // Clear state
-      racePlanState.participants.clear();
-      racePlanState.positions.clear();
-      racePlanState.levels.clear();
-      racePlanState.obstacles.clear();
-      racePlanState.winner = null;
-      racePlanState.gameOver = false;
-      
-      // Очищаем новые препятствия
-      OBST.forEach(rec => rec.el.remove());
-      OBST.clear();
-      STATE.players.clear();
-      
-      // Готовим к новому старту
-      STATE.finished = false;
-    }
-
     function connect() {
       // Get streamer ID from URL parameters
       const urlParams = new URLSearchParams(window.location.search);
@@ -3837,173 +3430,86 @@
       });
       
       // Plane Race Events
-      es.addEventListener('racePlanStart', (e) => {
-        try { 
-          const data = JSON.parse(e.data); 
+      es.addEventListener('racePlanStart', async (e) => {
+        try {
+          const data = JSON.parse(e.data);
           console.log('Plane race start event received:', data);
-          console.log('Participants count:', data.participants ? data.participants.length : 'undefined');
-          console.log('Countdown:', data.countdown);
-          
-          // Если сервер присылает levels/lives в старте, проставляем их
-          if (data.levels) {
-            Object.entries(data.levels).forEach(([uid, lvl]) => {
-              racePlanState.levels.set(uid, lvl|0);
-            });
-          }
-          
-          startRacePlan(data);
+          await startRacePlan(data);
         } catch(err) {
           console.error('Error parsing plane race start event:', err);
         }
       });
-      es.addEventListener('racePlanMonitoring', (e) => {
-        try { 
-          const data = JSON.parse(e.data); 
+      es.addEventListener('racePlanMonitoring', async (e) => {
+        try {
+          const data = JSON.parse(e.data);
           console.log('Plane race monitoring event received:', data);
-          // Initialize positions, levels, and lives
-          data.participants.forEach(userId => {
-            if (data.positions[userId]) {
-              racePlanState.positions.set(userId, data.positions[userId]);
-            }
-            if (data.levels[userId]) {
-              racePlanState.levels.set(userId, data.levels[userId]);
-            }
-            // REMOVED: Lives display creation to prevent red hearts from appearing
-            // if (data.lives && data.lives[userId]) {
-            //   createLivesDisplay(userId, data.lives[userId]);
-            // }
-          });
+          await handlePlaneMonitoring(data);
         } catch(err) {
           console.error('Error parsing plane race monitoring event:', err);
         }
       });
       es.addEventListener('racePlanLevelUpdate', (e) => {
-        try { 
-          const data = JSON.parse(e.data); 
-          updateRacePlanLevel(data.userId, data.level);
+        try {
+          const data = JSON.parse(e.data);
+          setPlaneLane(data.userId, data.level);
         } catch(_) {}
       });
       es.addEventListener('racePlanPositionUpdate', (e) => {
-        try { 
-          const data = JSON.parse(e.data); 
-          updateRacePlanPosition(data.userId, data.position);
+        try {
+          const data = JSON.parse(e.data);
+          setPlanePosition(data.userId, data.position);
         } catch(_) {}
       });
       es.addEventListener('obstacleSpawn', (e) => {
-        try { 
-          const data = JSON.parse(e.data); 
-          spawnObstacle(data);
+        try {
+          const data = JSON.parse(e.data);
+          spawnPlaneObstacle(data);
         } catch(_) {}
       });
       es.addEventListener('racePlanObstacleSpawn', (e) => {
-        try { 
-          const data = JSON.parse(e.data); 
-          spawnObstacle(data);
+        try {
+          const data = JSON.parse(e.data);
+          spawnPlaneObstacle(data);
         } catch(_) {}
       });
       es.addEventListener('obstacleRemove', (e) => {
-        try { 
-          const data = JSON.parse(e.data); 
-          removeObstacle(data.id);
+        try {
+          const data = JSON.parse(e.data);
+          removePlaneObstacle(data.id);
         } catch(_) {}
       });
       es.addEventListener('racePlanObstacleBatch', (e) => {
-        try { 
-          const arr = JSON.parse(e.data); // [{id, x, lane, type}]
-          arr.forEach(o => {
-            let rec = OBST.get(o.id);
-            if (!rec) {
-              const el = createObstacleEl(o.id, o.lane, o.x, o.type);
-              rec = { el, lane: o.lane, x: o.x, serverX: o.x };
-              OBST.set(o.id, rec);
-              return;
-            }
-            // Обновляем только целевые позиции от сервера
-            rec.lane = o.lane;
-            rec.serverX = o.x; // <- целевая позиция от сервера
-          });
+        try {
+          const data = JSON.parse(e.data);
+          updateObstacleTargets(data);
         } catch(_) {}
       });
-      es.addEventListener('racePlanState', (e) => {
-        try { 
-          const data = JSON.parse(e.data); 
-          console.log('=== RECEIVED racePlanState SSE event ===');
-          console.log('Data:', data);
-          
-          const { players, started, finished } = data;
-          STATE.started = started;
-          STATE.finished = finished;
-          
-          players.forEach(pl => {
-            let p = STATE.players.get(pl.id);
-            if (!p) {
-              // Используем существующую функцию создания аватара
-              const existingEl = document.getElementById(`race-plan-avatar-${pl.id}`);
-              if (existingEl) {
-                p = { el: existingEl, lane: pl.lane ?? 1, x: pl.x ?? 50, serverX: pl.x ?? 50, out: false };
-                STATE.players.set(pl.id, p);
-              }
-            }
-            
-            if (p) {
-              // Обновляем состояние игрока
-              p.lane = pl.lane ?? 1;
-              p.serverX = pl.x ?? 50; // целевая позиция с сервера
-              p.out = !!pl.out;
-              p.lives = pl.lives ?? 3;
-              
-              // Обновляем отображение жизней
-              updateLivesDisplay(pl.id, p.lives);
-              
-              if (p.out) {
-                p.el.classList.add('out');
-                p.el.dataset.dead = '1';
-              } else {
-                p.el.classList.remove('out');
-                delete p.el.dataset.dead;
-              }
-              
-            }
-          });
+      es.addEventListener('racePlanState', async (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          console.log('=== RECEIVED racePlanState SSE event ===', data);
+          await handlePlaneRaceState(data);
         } catch(err) {
           console.error('Error parsing racePlanState event:', err);
         }
       });
       es.addEventListener('racePlanCollision', (e) => {
-        try { 
-          const data = JSON.parse(e.data); 
-          handleRacePlanCollision(data.playerId || data.userId, data.lives);
+        try {
+          const data = JSON.parse(e.data);
+          handlePlaneCollision(data.playerId || data.userId, data.lives);
         } catch(_) {}
       });
       es.addEventListener('racePlanEnd', (e) => {
-        try { 
-          const data = JSON.parse(e.data); 
+        try {
+          const data = JSON.parse(e.data);
           console.log('Plane race end event received:', data);
-          
-          // Show winner or no winners message
-          const winnerEl = document.getElementById('racePlanWinner');
-          if (data.noWinners) {
-            winnerEl.textContent = `💀 ПОБЕДИТЕЛЕЙ НЕТ!`;
-            winnerEl.style.color = '#ff6b6b'; // красный цвет для "нет победителей"
-          } else {
-            winnerEl.textContent = `🏆 ${data.winnerName} ПОБЕДИЛ!`;
-            winnerEl.style.color = '#ffd700'; // золотой цвет для победителя
-          }
-          winnerEl.style.display = 'block';
-          
-          // Clean up after 5 seconds
-          setTimeout(() => {
-            endPlaneRace();
-          }, 5000);
+          handlePlaneRaceEnd(data);
         } catch(_) {}
       });
       
       es.onerror = () => { es.close(); setTimeout(connect, 2000); };
     }
 
-    // Запускаем игровой цикл сразу при загрузке
-    startLoop();
-    
     connect();
   </script>
 </body>
