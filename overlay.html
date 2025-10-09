@@ -58,6 +58,9 @@
     .avatar .layer.static {
       opacity: 1;
     }
+    .avatar .layer.plane {
+      opacity: 1;
+    }
     .avatar.laughing {
       animation: laughShake 1.5s ease-in-out;
     }
@@ -250,6 +253,35 @@
       transform-origin: bottom left;
       transform: scale(0.35);
       filter: drop-shadow(0 6px 12px rgba(15, 23, 42, 0.45));
+    }
+
+    /* 
+     * ===== НАСТРОЙКИ САМОЛЕТА - ЛЕГКО ИЗМЕНЯТЬ =====
+     * 
+     * Для изменения РАЗМЕРА самолета:
+     *   --plane-scale: 0.33 (текущий - уменьшен в 3 раза)
+     *   --plane-scale: 0.5  (увеличить)
+     *   --plane-scale: 0.2  (уменьшить еще больше)
+     * 
+     * Для смещения самолета ВЛЕВО/ВПРАВО относительно аватара:
+     *   --plane-offset-x: -20px  (сдвиг влево)
+     *   --plane-offset-x: 30px   (сдвиг вправо)
+     * 
+     * Для смещения самолета ВВЕРХ/ВНИЗ относительно аватара:
+     *   --plane-offset-y: 15px   (сдвиг вверх)
+     *   --plane-offset-y: -10px  (сдвиг вниз)
+     */
+    .race-plan-avatar .avatar .layer.plane {
+      position: absolute;
+      left: var(--plane-offset-x, 0px);
+      bottom: var(--plane-offset-y, 0px);
+      width: auto;
+      height: auto;
+      transform: scale(var(--plane-scale, 0.33));
+      transform-origin: bottom left;
+      z-index: 10;
+      pointer-events: none;
+      opacity: 1 !important;
     }
 
     .race-plan-avatar.hit .avatar {
@@ -595,6 +627,7 @@
     .layer[alt="clothes"] { z-index: 2; }
     .layer[alt="face"] { z-index: 3; }
     .layer[alt="others"] { z-index: 4; }
+    .layer[alt="plane"] { z-index: 10; width: auto; height: auto; }
     
     /* Walking animation layers */
     .layer[alt="body_walk1"] { z-index: 1; }
@@ -687,6 +720,8 @@
       avatar.querySelectorAll('.layer.tired').forEach(l => l.style.setProperty('opacity', tiredOn ? '1' : '0', 'important'));
       avatar.querySelectorAll('.layer.sign').forEach(l => l.style.setProperty('opacity', signOn ? '1' : '0', 'important'));
       avatar.querySelectorAll('.layer.hi').forEach(l => l.style.setProperty('opacity', hiOn ? '1' : '0', 'important'));
+      // Plane layer always visible during plane race
+      avatar.querySelectorAll('.layer.plane').forEach(l => l.style.setProperty('opacity', '1', 'important'));
     }
 
     function startWalkingAnimation(avatar, fps = 8) {
@@ -2075,6 +2110,15 @@
         }
         avatar.appendChild(img);
       });
+
+      // Add plane layer on top
+      // Настройки самолета изменяются через CSS переменные:
+      // --plane-scale (масштаб), --plane-offset-x (сдвиг X), --plane-offset-y (сдвиг Y)
+      const planeImg = document.createElement('img');
+      planeImg.className = 'layer plane';
+      planeImg.alt = 'plane';
+      planeImg.src = '/parts/plane/plane_1.png';
+      avatar.appendChild(planeImg);
 
       wrapper.appendChild(avatar);
 
