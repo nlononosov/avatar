@@ -1800,7 +1800,9 @@
       rafId: null,
       lastFrame: 0,
       countdownTimer: null,
-      endTimeout: null
+      endTimeout: null,
+      serverTrackWidth: 1200,
+      localTrackWidth: 1200
     };
 
     const PLANE_LANES = 5;
@@ -1813,6 +1815,39 @@
 
     function getRacePlanArea() {
       return document.getElementById('racePlanArea');
+    }
+
+    function getPlaneAreaWidth() {
+      const area = getRacePlanArea();
+      if (!area) {
+        return planeGame.localTrackWidth || window.innerWidth || 1200;
+      }
+      const width = area.clientWidth || area.offsetWidth || planeGame.localTrackWidth || 1200;
+      planeGame.localTrackWidth = width;
+      return width;
+    }
+
+    function updateServerTrackWidth(width) {
+      if (Number.isFinite(width) && width > 0) {
+        planeGame.serverTrackWidth = width;
+      }
+    }
+
+    function resolveSourceTrackWidth(width) {
+      if (Number.isFinite(width) && width > 0) return width;
+      if (Number.isFinite(planeGame.serverTrackWidth) && planeGame.serverTrackWidth > 0) return planeGame.serverTrackWidth;
+      if (Number.isFinite(planeGame.localTrackWidth) && planeGame.localTrackWidth > 0) return planeGame.localTrackWidth;
+      return 1200;
+    }
+
+    function scalePlaneX(x, sourceWidth) {
+      if (!Number.isFinite(x)) return 0;
+      const targetWidth = getPlaneAreaWidth();
+      const basisWidth = resolveSourceTrackWidth(sourceWidth);
+      if (!Number.isFinite(basisWidth) || basisWidth <= 0) {
+        return x;
+      }
+      return (x / basisWidth) * targetWidth;
     }
 
     function laneCenter(lane) {
@@ -1902,6 +1937,8 @@
       if (!area) return;
       const trackWidth = area.clientWidth;
       if (!trackWidth) return;
+      planeGame.localTrackWidth = trackWidth;
+      updateServerTrackWidth(trackWidth);
       fetch('/api/race-plan/update-track-width', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2067,6 +2104,9 @@
         wrapper.style.height = `${height}px`;
       }
 
+      const initialBaseX = 50;
+      const initialLocalX = scalePlaneX(initialBaseX, planeGame.serverTrackWidth);
+
       const player = {
         id: userId,
         el: wrapper,
@@ -2074,14 +2114,16 @@
         heartsEl: livesDisplay,
         lane: clampLane(lane ?? 2),
         targetLane: clampLane(lane ?? 2),
-        currentX: 50,
-        targetX: 50,
+        currentX: initialLocalX,
+        targetX: initialLocalX,
         currentY: laneCenter(lane ?? 2),
         targetY: laneCenter(lane ?? 2),
         width,
         height,
         lives: PLANE_MAX_LIVES,
-        removing: false
+        removing: false,
+        baseX: initialBaseX,
+        baseTrackWidth: planeGame.serverTrackWidth
       };
 
       planeGame.players.set(userId, player);
@@ -2138,6 +2180,10 @@
         return;
       }
 
+      if (Number.isFinite(data?.trackWidth)) {
+        updateServerTrackWidth(data.trackWidth);
+      }
+
       planeGame.active = true;
       planeGame.finished = false;
       area.innerHTML = '';
@@ -2159,7 +2205,11 @@
       }
 
       if (data?.positions) {
-        Object.entries(data.positions).forEach(([userId, pos]) => setPlanePosition(userId, pos));
+        Object.entries(data.positions).forEach(([userId, pos]) => {
+          const positionData = typeof pos === 'object' && pos !== null ? { ...pos } : { x: Number(pos) };
+          positionData.trackWidth = data.trackWidth;
+          setPlanePosition(userId, positionData);
+        });
       }
 
       updatePlaneTrackWidth();
@@ -2169,10 +2219,17 @@
     function setPlanePosition(userId, position = {}) {
       const player = planeGame.players.get(userId);
       if (!player) return;
+      if (Number.isFinite(position.trackWidth)) {
+        updateServerTrackWidth(position.trackWidth);
+      }
       if (position && Number.isFinite(position.x)) {
-        player.targetX = position.x;
+        const sourceWidth = resolveSourceTrackWidth(position.trackWidth);
+        const scaledX = scalePlaneX(position.x, sourceWidth);
+        player.baseX = position.x;
+        player.baseTrackWidth = sourceWidth;
+        player.targetX = scaledX;
         if (!Number.isFinite(player.currentX)) {
-          player.currentX = position.x;
+          player.currentX = scaledX;
         }
       }
       positionPlanePlayer(player);
@@ -2184,6 +2241,7 @@
       const clamped = clampLane(lane);
       player.targetLane = clamped;
       player.targetY = laneCenter(clamped);
+      player.lane = clamped;
     }
 
     function spawnPlaneObstacle(data) {
@@ -2194,6 +2252,10 @@
         return;
       }
 
+      if (Number.isFinite(data.trackWidth)) {
+        updateServerTrackWidth(data.trackWidth);
+      }
+
       const el = document.createElement('div');
       el.className = 'race-plan-obstacle';
       if (data.type) {
@@ -2202,14 +2264,20 @@
       el.dataset.id = data.id;
       area.appendChild(el);
 
+      const sourceWidth = resolveSourceTrackWidth(data.trackWidth);
+      const baseX = Number.isFinite(data.x) ? data.x : sourceWidth + 150;
+      const scaledX = scalePlaneX(baseX, sourceWidth);
+
       const obstacle = {
         id: data.id,
         el,
         lane: clampLane(data.lane ?? 2),
         width: el.offsetWidth || 56,
         height: el.offsetHeight || 36,
-        currentX: Number.isFinite(data.x) ? data.x : area.clientWidth + 150,
-        targetX: Number.isFinite(data.x) ? data.x : area.clientWidth + 150
+        currentX: scaledX,
+        targetX: scaledX,
+        baseX,
+        baseTrackWidth: sourceWidth
       };
       planeGame.obstacles.set(data.id, obstacle);
       positionPlaneObstacle(obstacle, true);
@@ -2226,7 +2294,21 @@
         }
         if (!obstacle) return;
         obstacle.lane = clampLane(data.lane ?? obstacle.lane ?? 2);
-        obstacle.targetX = Number.isFinite(data.x) ? data.x : obstacle.targetX;
+        if (Number.isFinite(data.trackWidth)) {
+          updateServerTrackWidth(data.trackWidth);
+        }
+        if (Number.isFinite(data.x)) {
+          const sourceWidth = resolveSourceTrackWidth(data.trackWidth ?? obstacle.baseTrackWidth);
+          obstacle.baseTrackWidth = sourceWidth;
+          obstacle.baseX = data.x;
+          obstacle.targetX = scalePlaneX(data.x, sourceWidth);
+        } else if (Number.isFinite(data.trackWidth)) {
+          const sourceWidth = resolveSourceTrackWidth(data.trackWidth);
+          obstacle.baseTrackWidth = sourceWidth;
+          if (Number.isFinite(obstacle.baseX)) {
+            obstacle.targetX = scalePlaneX(obstacle.baseX, sourceWidth);
+          }
+        }
         obstacle.targetY = laneCenter(obstacle.lane);
       });
     }
@@ -2243,6 +2325,9 @@
 
     async function handlePlaneMonitoring(data) {
       if (!data) return;
+      if (Number.isFinite(data.trackWidth)) {
+        updateServerTrackWidth(data.trackWidth);
+      }
       const participants = Array.isArray(data.participants) ? data.participants : [];
       for (const userId of participants) {
         if (!planeGame.players.has(userId)) {
@@ -2250,7 +2335,10 @@
           await createPlanePlayer(userId, lane);
         }
         if (data.positions && data.positions[userId]) {
-          setPlanePosition(userId, data.positions[userId]);
+          const pos = data.positions[userId];
+          const positionData = typeof pos === 'object' && pos !== null ? { ...pos } : { x: Number(pos) };
+          positionData.trackWidth = data.trackWidth;
+          setPlanePosition(userId, positionData);
         }
         if (data.levels && data.levels[userId] !== undefined) {
           setPlaneLane(userId, data.levels[userId]);
@@ -2268,6 +2356,9 @@
       if (planeGame.started) {
         startPlaneLoop();
       }
+      if (Number.isFinite(state.trackWidth)) {
+        updateServerTrackWidth(state.trackWidth);
+      }
 
       const players = Array.isArray(state.players) ? state.players : [];
       for (const playerState of players) {
@@ -2276,7 +2367,7 @@
           await createPlanePlayer(playerState.id, playerState.lane ?? 2);
         }
         setPlaneLane(playerState.id, playerState.lane ?? 2);
-        setPlanePosition(playerState.id, { x: playerState.x });
+        setPlanePosition(playerState.id, { x: playerState.x, trackWidth: state.trackWidth });
         updatePlaneLives(playerState.id, playerState.lives ?? PLANE_MAX_LIVES);
         if (playerState.out) {
           updatePlaneLives(playerState.id, 0);
@@ -2323,11 +2414,27 @@
       setRaceHeight();
       if (!planeGame.active) return;
       planeGame.players.forEach(player => {
+        if (Number.isFinite(player.baseX)) {
+          const sourceWidth = resolveSourceTrackWidth(player.baseTrackWidth);
+          const scaledX = scalePlaneX(player.baseX, sourceWidth);
+          if (Number.isFinite(scaledX)) {
+            player.targetX = scaledX;
+            player.currentX = scaledX;
+          }
+        }
         player.targetY = laneCenter(player.targetLane ?? player.lane);
         player.currentY = player.targetY;
         positionPlanePlayer(player, true);
       });
       planeGame.obstacles.forEach(obstacle => {
+        if (Number.isFinite(obstacle.baseX)) {
+          const sourceWidth = resolveSourceTrackWidth(obstacle.baseTrackWidth);
+          const scaledX = scalePlaneX(obstacle.baseX, sourceWidth);
+          if (Number.isFinite(scaledX)) {
+            obstacle.targetX = scaledX;
+            obstacle.currentX = scaledX;
+          }
+        }
         obstacle.currentY = laneCenter(obstacle.lane);
         positionPlaneObstacle(obstacle, true);
       });

@@ -994,7 +994,7 @@ const UP_WORDS  = new Set(['верх','вверх','up','u','w','↑']);
 const DOWN_WORDS= new Set(['низ','вниз','down','d','s','↓']);
 
 // === Константы для препятствий ===
-const LANES = [0,1,2]; // 0=верх, 1=центр, 2=низ
+const LANES = [0, 1, 2, 3, 4]; // 0=верх, 4=низ (всего 5 уровней)
 const OBSTACLE_TYPES = ['bird', 'plane', 'rock'];
 
 function randInt(min, max) { 
@@ -1028,22 +1028,27 @@ function emitLevelUpdate(userId, level, client, channel) {
 
 function spawnGameObstacle(channel) {
   if (!Game.isActive || Game.gameFinished) return;
-  
+
+  const trackWidth = Number.isFinite(racePlanState.trackWidth) && racePlanState.trackWidth > 0
+    ? racePlanState.trackWidth
+    : 1200;
+  const spawnOffset = 150; // чуть правее видимой области
+
   const id = `obs_${Date.now()}_${Math.random().toString(16).slice(2,6)}`;
-  const lane = LANES[randInt(0, 2)]; // случайная дорожка
+  const lane = LANES[randInt(0, LANES.length - 1)]; // случайная дорожка
   const speed = randInt(6, 10); // пикс/тик
-  const xStart = 1200; // стартовое X справа за экраном
+  const xStart = trackWidth + spawnOffset; // стартовое X справа за экраном
   const width = 80; // для хитбокса
   const type = OBSTACLE_TYPES[randInt(0, OBSTACLE_TYPES.length - 1)];
 
-  const obs = { id, lane, x: xStart, speed, width, hit: false, type };
+  const obs = { id, lane, x: xStart, speed, width, hit: false, type, trackWidth };
   Game.obstacles.push(obs);
   touchOverlayState();
 
   logLine(`[bot] Spawning obstacle ${id} in lane ${lane} (type: ${type})`);
-  
+
   // говорим оверлею создать DOM-элемент, lane передаём обязательно
-  emitOverlay('racePlanObstacleSpawn', { id, lane, x: xStart, type }, channel);
+  emitOverlay('racePlanObstacleSpawn', { id, lane, x: xStart, type, trackWidth }, channel);
 }
 
 
@@ -1308,10 +1313,12 @@ function broadcastState() {
     logLine(`[bot] First player data:`, players[0]);
   }
   
+  const stateTrackWidth = Number.isFinite(racePlanState.trackWidth) ? racePlanState.trackWidth : 1200;
   const stateData = {
     players,
     started: !!Game.isActive,
     finished: !!Game.gameFinished,
+    trackWidth: stateTrackWidth,
   };
   
   const botChannel = getBotChannel();
@@ -1320,11 +1327,12 @@ function broadcastState() {
   emitOverlay('racePlanState', stateData, botChannel);
   
   // Также отправляем батч препятствий
-  const obstaclesData = Game.obstacles.map(o => ({ 
-    id: o.id, 
-    x: o.x, 
-    lane: o.lane, 
-    type: o.type 
+  const obstaclesData = Game.obstacles.map(o => ({
+    id: o.id,
+    x: o.x,
+    lane: o.lane,
+    type: o.type,
+    trackWidth: Number.isFinite(o.trackWidth) ? o.trackWidth : stateTrackWidth
   }));
   
   if (obstaclesData.length > 0) {
@@ -1819,7 +1827,8 @@ function startRacePlanCountdown(client, channel) {
     participants: Array.from(racePlanState.participants),
     countdown: 3,
     levels: Object.fromEntries(racePlanState.levels),
-    lives: Object.fromEntries(racePlanState.lives)
+    lives: Object.fromEntries(racePlanState.lives),
+    trackWidth: Number.isFinite(racePlanState.trackWidth) ? racePlanState.trackWidth : 1200
   };
   logLine(`[bot] Emitting racePlanStart event: ${JSON.stringify(racePlanStartData)}`);
   logLine(`[bot] Race plan participants count: ${racePlanState.participants.size}`);
@@ -1872,7 +1881,8 @@ function startPlaneRaceMonitoring(client, channel) {
     participants: Array.from(racePlanState.participants),
     positions: Object.fromEntries(racePlanState.positions),
     levels: Object.fromEntries(racePlanState.levels),
-    lives: Object.fromEntries(racePlanState.lives)
+    lives: Object.fromEntries(racePlanState.lives),
+    trackWidth: Number.isFinite(racePlanState.trackWidth) ? racePlanState.trackWidth : 1200
   }, channel);
 
   // Start obstacle spawning
@@ -1913,7 +1923,7 @@ function checkRacePlanCommand(text, userId, displayName, client, channel) {
   
   // Check for level change commands
   if (UP_WORDS.has(text)) {
-    const currentLevel = racePlanState.levels.get(userId) || 2;
+    const currentLevel = racePlanState.levels.get(userId) ?? 2;
     if (currentLevel > 0) {
       const newLevel = currentLevel - 1; // Move up (0=top, 1-3=middle, 4=bottom)
       racePlanState.levels.set(userId, newLevel);
@@ -1933,7 +1943,7 @@ function checkRacePlanCommand(text, userId, displayName, client, channel) {
       logLine(`[bot] User ${displayName} moved to level ${newLevel}`);
     }
   } else if (DOWN_WORDS.has(text)) {
-    const currentLevel = racePlanState.levels.get(userId) || 2;
+    const currentLevel = racePlanState.levels.get(userId) ?? 2;
     if (currentLevel < 4) {
       const newLevel = currentLevel + 1; // Move down (0=top, 1-3=middle, 4=bottom)
       racePlanState.levels.set(userId, newLevel);
@@ -2042,7 +2052,7 @@ function checkRacePlanCollisions() {
   
   racePlanState.participants.forEach(userId => {
     const position = racePlanState.positions.get(userId) || { x: 50, y: 0 };
-    const level = racePlanState.levels.get(userId) || 1;
+    const level = racePlanState.levels.get(userId) ?? 1;
     const lives = racePlanState.lives.get(userId) || 3;
     
     if (lives <= 0) return; // Player is out

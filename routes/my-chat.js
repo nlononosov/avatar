@@ -147,6 +147,24 @@ function registerMyChatRoute(app) {
       }
 
       racePlanState.trackWidth = trackWidth;
+      const planeGame = botService.getGame(String(streamerId));
+      if (planeGame) {
+        planeGame.trackWidth = trackWidth;
+        if (Array.isArray(planeGame.obstacles)) {
+          planeGame.obstacles.forEach(obstacle => {
+            if (obstacle && typeof obstacle === 'object') {
+              obstacle.trackWidth = trackWidth;
+            }
+          });
+        }
+      }
+      if (Array.isArray(racePlanState.obstacles)) {
+        racePlanState.obstacles.forEach(obstacle => {
+          if (obstacle && typeof obstacle === 'object') {
+            obstacle.trackWidth = trackWidth;
+          }
+        });
+      }
 
       res.json({ success: true });
     } catch (error) {
