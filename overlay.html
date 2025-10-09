@@ -2118,6 +2118,14 @@
       planeImg.className = 'layer plane';
       planeImg.alt = 'plane';
       planeImg.src = '/parts/plane/plane_1.png';
+      planeImg.style.position = 'absolute';
+      planeImg.style.left = 'var(--plane-offset-x, 0px)';
+      planeImg.style.bottom = 'var(--plane-offset-y, 0px)';
+      planeImg.style.transform = 'scale(var(--plane-scale, 0.33))';
+      planeImg.style.transformOrigin = 'bottom left';
+      planeImg.style.pointerEvents = 'none';
+      planeImg.style.zIndex = '10';
+      planeImg.style.setProperty('opacity', '1', 'important');
       avatar.appendChild(planeImg);
 
       wrapper.appendChild(avatar);
