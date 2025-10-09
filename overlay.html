@@ -1,0 +1,3467 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Avatar Overlay</title>
+  <style>
+    :root {
+      --primary: #9146ff;
+      --primary-dark: #7c3aed;
+      --secondary: #fbbf24;
+      --accent: #10b981;
+      --bg-dark: #0f172a;
+      --bg-card: #111827;
+      --text-primary: #e2e8f0;
+      --text-secondary: #9ca3af;
+      --border: #374151;
+    }
+
+    html, body { 
+      height: 100%; 
+      margin: 0; 
+      background: transparent; 
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    body { 
+      overflow: hidden; 
+    }
+    
+    #stage {
+      position: fixed;
+      left: 0; 
+      right: 0; 
+      bottom: 0;
+      height: 25%; /* увеличил высоту для лучшей видимости */
+      pointer-events: none;
+      background: linear-gradient(to top, rgba(15, 23, 42, 0.1), transparent);
+    }
+    
+    .avatar {
+      position: absolute;
+      bottom: 0;
+      width: 140px; /* увеличил размер */
+      height: 180px;
+      transform: translateZ(0);
+      image-rendering: -webkit-optimize-contrast;
+      /* Movement is now controlled by JavaScript for constant speed */
+    }
+
+    .food-game-avatar .avatar {
+      transition: none;
+    }
+    /* Убираем CSS управление opacity - теперь все через JavaScript */
+    .avatar .layer {
+      opacity: 0;
+    }
+    .avatar .layer.static {
+      opacity: 1;
+    }
+    .avatar.laughing {
+      animation: laughShake 1.5s ease-in-out;
+    }
+    
+    /* Стили для состояния tired */
+    .avatar.tired {
+      filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
+      opacity: 0.8;
+    }
+    
+    .avatar.normal {
+      filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
+      opacity: 1;
+    }
+    .avatar .gift {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -60%);
+      width: 40px; /* увеличил размер */
+      height: 40px;
+      z-index: 200;
+      pointer-events: none;
+      animation: giftFloat 3s cubic-bezier(0.4, 0, 0.2, 1);
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+    }
+    
+    .avatar .gift img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      animation: giftRotate 3s ease-in-out;
+    }
+    
+    @keyframes giftFloat {
+      0% { 
+        transform: translate(-50%, -60%) scale(0.3);
+        opacity: 0;
+      }
+      15% { 
+        transform: translate(-50%, -60%) scale(1.3);
+        opacity: 1;
+      }
+      25% { 
+        transform: translate(-50%, -60%) scale(1);
+        opacity: 1;
+      }
+      75% { 
+        transform: translate(-50%, -60%) scale(1);
+        opacity: 1;
+      }
+      100% { 
+        transform: translate(-50%, -60%) scale(0.7);
+        opacity: 0;
+      }
+    }
+    
+    @keyframes giftRotate {
+      0%, 100% { transform: rotate(0deg); }
+      25% { transform: rotate(-5deg); }
+      75% { transform: rotate(5deg); }
+    }
+
+    /* Race styles */
+    .race-track {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: transparent; /* Убираем фон */
+      z-index: 1000;
+      display: none;
+      /* backdrop-filter: blur(2px); */ /* Убираем размытие фона */
+    }
+
+    .race-avatar {
+      position: fixed;
+      top: 50%;
+      left: 20px;
+      transform: translateY(-50%);
+      z-index: 1001;
+      transition: left 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
+    }
+
+    .race-avatar .avatar {
+      position: relative;
+      left: 0 !important;
+      transform: scale(0.9);
+      animation: raceBounce 0.6s ease-in-out infinite alternate;
+    }
+    
+    @keyframes raceBounce {
+      0% { transform: scale(0.9) translateY(0px); }
+      100% { transform: scale(0.9) translateY(-3px); }
+    }
+
+    .race-countdown {
+      position: fixed;
+      top: 30%;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 64px;
+      font-weight: 800;
+      color: var(--secondary);
+      text-shadow: 0 0 20px rgba(251, 191, 36, 0.8), 2px 2px 8px rgba(0,0,0,0.9);
+      z-index: 1002;
+      display: none;
+      text-align: center;
+      animation: countdownPulse 1s ease-in-out infinite;
+      font-family: 'Courier New', monospace;
+    }
+    
+    @keyframes countdownPulse {
+      0%, 100% { transform: translateX(-50%) scale(1); }
+      50% { transform: translateX(-50%) scale(1.1); }
+    }
+
+    .race-winner {
+      position: fixed;
+      top: calc(50% - 80px);
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 48px;
+      font-weight: 800;
+      color: var(--secondary);
+      text-shadow: 0 0 30px rgba(251, 191, 36, 1), 2px 2px 8px rgba(0,0,0,0.9);
+      z-index: 1003;
+      display: none;
+      text-align: center;
+      animation: winnerGlow 2s ease-in-out infinite alternate;
+      font-family: 'Courier New', monospace;
+    }
+    
+    @keyframes winnerGlow {
+      0% { 
+        text-shadow: 0 0 30px rgba(251, 191, 36, 1), 2px 2px 8px rgba(0,0,0,0.9);
+        transform: translateX(-50%) scale(1);
+      }
+      100% { 
+        text-shadow: 0 0 40px rgba(251, 191, 36, 1), 0 0 60px rgba(251, 191, 36, 0.8), 2px 2px 8px rgba(0,0,0,0.9);
+        transform: translateX(-50%) scale(1.05);
+      }
+    }
+
+    /* Food Game Styles */
+    .food-game-area {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1000;
+      display: none;
+    }
+
+    /* Race Plan Styles */
+    .race-plan-area {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: var(--race-h, 340px);
+      background-image:
+        linear-gradient(180deg, rgba(30, 64, 175, 0.85), rgba(30, 64, 175, 0.45)),
+        repeating-linear-gradient(
+          to bottom,
+          rgba(148, 163, 184, 0.22) 0,
+          rgba(148, 163, 184, 0.22) 2px,
+          transparent 2px,
+          transparent calc(20% - 2px)
+        );
+      background-size: cover, 100% 100%;
+      z-index: 1000;
+      display: none;
+      overflow: hidden;
+      box-shadow: 0 -12px 24px rgba(15, 23, 42, 0.65);
+    }
+
+    .race-plan-area.active {
+      display: block;
+    }
+
+    .race-plan-avatar {
+      position: absolute;
+      width: auto;
+      height: auto;
+      pointer-events: none;
+      will-change: transform, opacity;
+      transition: opacity 0.4s ease, transform 0.2s ease;
+      z-index: 1001;
+    }
+
+    .race-plan-avatar .avatar {
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      transform-origin: bottom left;
+      transform: scale(0.35);
+      filter: drop-shadow(0 6px 12px rgba(15, 23, 42, 0.45));
+    }
+
+    .race-plan-avatar.hit .avatar {
+      animation: planeHit 0.45s ease;
+    }
+
+    .race-plan-avatar.eliminated {
+      opacity: 0;
+    }
+
+    @keyframes planeHit {
+      0% { transform: scale(0.35) translateY(0); }
+      40% { transform: scale(0.35) translateY(-12px) rotate(-4deg); }
+      70% { transform: scale(0.35) translateY(6px) rotate(4deg); }
+      100% { transform: scale(0.35) translateY(0); }
+    }
+
+    .race-plan-avatar .lives-display {
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 12px);
+      transform: translateX(-50%);
+      display: flex;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      background: rgba(15, 23, 42, 0.6);
+      box-shadow: 0 6px 12px rgba(15, 23, 42, 0.45);
+      pointer-events: none;
+    }
+
+    .race-plan-avatar .lives-display .heart {
+      position: relative;
+      width: 16px;
+      height: 16px;
+      transform: rotate(-45deg);
+      background: radial-gradient(circle at 30% 30%, #fca5a5, #ef4444 75%);
+      border-radius: 50% 50% 40% 40%;
+      animation: heartbeat 1s ease-in-out infinite;
+    }
+
+    .race-plan-avatar .lives-display .heart::before,
+    .race-plan-avatar .lives-display .heart::after {
+      content: '';
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: inherit;
+      top: -50%;
+      left: 0;
+    }
+
+    .race-plan-avatar .lives-display .heart::after {
+      left: 50%;
+      top: 0;
+    }
+
+    .race-plan-avatar .lives-display .heart.empty {
+      background: #475569;
+      animation: none;
+    }
+
+    .race-plan-avatar .lives-display .heart.empty::before,
+    .race-plan-avatar .lives-display .heart.empty::after {
+      background: #475569;
+    }
+
+    @keyframes heartbeat {
+      0%, 100% { transform: rotate(-45deg) scale(1); }
+      50% { transform: rotate(-45deg) scale(1.15); }
+    }
+
+    .race-plan-obstacle {
+      position: absolute;
+      width: 56px;
+      height: 36px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #f8fafc, #cbd5f5);
+      box-shadow: 0 8px 14px rgba(15, 23, 42, 0.4);
+      will-change: transform, opacity;
+      z-index: 1000;
+      transition: opacity 0.3s ease;
+    }
+
+    .race-plan-obstacle.type-bird {
+      background: linear-gradient(135deg, #fee2e2, #f97316);
+    }
+
+    .race-plan-obstacle.type-plane {
+      background: linear-gradient(135deg, #c7d2fe, #6366f1);
+    }
+
+    .race-plan-obstacle.type-cloud {
+      background: linear-gradient(135deg, #e2e8f0, #94a3b8);
+    }
+
+    .race-plan-obstacle.fading {
+      opacity: 0;
+    }
+
+    .race-plan-finish {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      right: 60px;
+      width: 6px;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0.9) 0 12px,
+        rgba(30, 64, 175, 0.9) 12px 24px
+      );
+      box-shadow: 0 0 16px rgba(251, 191, 36, 0.6);
+      opacity: 0.85;
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    .obstacle.rock {
+      width: 60px;
+      height: 60px;
+      background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60"><path d="M30 10c-8 0-15 7-15 15s7 15 15 15 15-7 15-15-7-15-15-15zm0 25c-5 0-10-5-10-10s5-10 10-10 10 5 10 10-5 10-10 10z" fill="%23888"/><circle cx="25" cy="25" r="3" fill="%23999"/><circle cx="35" cy="30" r="2" fill="%23777"/></svg>') no-repeat center;
+      background-size: contain;
+    }
+
+    .race-plan-countdown {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 72px;
+      font-weight: bold;
+      color: #3b82f6;
+      text-shadow: 3px 3px 6px rgba(0,0,0,0.8);
+      z-index: 1002;
+      display: none;
+    }
+
+    .race-plan-winner {
+      position: fixed;
+      top: calc(50% - 80px);
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 48px;
+      font-weight: bold;
+      color: #fbbf24;
+      text-shadow: 0 0 20px rgba(251, 191, 36, 0.8);
+      z-index: 1002;
+      display: none;
+    }
+
+    .food-game-avatar {
+      position: absolute;
+      bottom: 20px;
+      z-index: 1001;
+      transform-origin: center;
+      will-change: left;
+      contain: paint;
+      backface-visibility: hidden;
+    }
+
+    .carrot {
+      position: absolute;
+      width: 50px; /* увеличил размер */
+      height: 50px;
+      background: url('/parts/carrot.svg') no-repeat center;
+      background-size: contain;
+      z-index: 1001;
+      transition: opacity 0.3s ease;
+      filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3));
+      animation: carrotFloat 2s ease-in-out infinite;
+    }
+    
+    @keyframes carrotFloat {
+      0%, 100% { transform: translateY(0px) rotate(0deg); }
+      50% { transform: translateY(-5px) rotate(2deg); }
+    }
+    
+    /* Responsive Design for Overlay */
+    @media (max-width: 768px) {
+      .avatar {
+        width: 120px;
+        height: 150px;
+      }
+      
+      .race-avatar .avatar {
+        transform: scale(0.7);
+      }
+      
+      .race-countdown {
+        font-size: 48px;
+      }
+      
+      .race-winner {
+        font-size: 36px;
+      }
+      
+      .carrot {
+        width: 40px;
+        height: 40px;
+      }
+      
+      .avatar .gift {
+        width: 32px;
+        height: 32px;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .avatar {
+        width: 100px;
+        height: 130px;
+      }
+      
+      .race-avatar .avatar {
+        transform: scale(0.6);
+      }
+      
+      .race-countdown {
+        font-size: 36px;
+      }
+      
+      .race-winner {
+        font-size: 28px;
+      }
+      
+      .carrot {
+        width: 35px;
+        height: 35px;
+      }
+      
+      .avatar .gift {
+        width: 28px;
+        height: 28px;
+      }
+    }
+
+    .carrot.grounded {
+      opacity: 0.9;
+      transform: scale(1.2);
+    }
+
+    /* Score counter styles */
+    .score-counter {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.8);
+      color: #00ff00;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: bold;
+      font-family: -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      text-shadow: 0 0 4px rgba(0, 255, 0, 0.8);
+      border: 2px solid #00ff00;
+      white-space: nowrap;
+      display: block;
+    }
+
+    .food-game-avatar .score-counter {
+      position: absolute;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      transform-origin: center;
+      pointer-events: none;
+      z-index: 1000;
+      font-size: 7px;
+      padding: 2px 4px;
+    }
+
+    .score-counter.updated {
+      background: rgba(0, 255, 0, 0.9);
+      color: #000;
+      box-shadow: 0 0 15px rgba(0, 255, 0, 0.8);
+    }
+
+
+    .food-game-countdown {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 72px;
+      font-weight: bold;
+      color: #ff6b6b;
+      text-shadow: 3px 3px 6px rgba(0,0,0,0.8);
+      z-index: 1002;
+      display: none;
+    }
+
+    .food-game-winner {
+      position: fixed;
+      top: calc(50% - 80px);
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 48px;
+      font-weight: bold;
+      color: #fbbf24;
+      text-shadow: 0 0 20px rgba(251, 191, 36, 0.8);
+      z-index: 1002;
+      display: none;
+    }
+
+    .avatar .emoji {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, 50%);
+      font-size: 24px;
+      z-index: 100;
+      pointer-events: none;
+      font-family: -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      font-weight: bold;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+      color: white;
+    }
+    
+    .avatar .emoji img {
+      width: 28px;
+      height: 28px;
+      object-fit: contain;
+    }
+    .avatar.walking.left .layer.walk1,
+    .avatar.walking.left .layer.walk2 {
+      transform: scaleX(-1);
+    }
+    
+    /* CSS анимации ходьбы убраны - теперь управляется через JavaScript */
+    @keyframes laughShake {
+      0%, 100% { transform: translateX(0); }
+      10% { transform: translateX(-8px); }
+      20% { transform: translateX(8px); }
+      30% { transform: translateX(-8px); }
+      40% { transform: translateX(8px); }
+      50% { transform: translateX(-6px); }
+      60% { transform: translateX(6px); }
+      70% { transform: translateX(-4px); }
+      80% { transform: translateX(4px); }
+      90% { transform: translateX(-2px); }
+    }
+    .layer { position: absolute; left: 0; bottom: 0; width: 100%; height: 100%; }
+    .layer[alt="body"] { z-index: 1; }
+    .layer[alt="clothes"] { z-index: 2; }
+    .layer[alt="face"] { z-index: 3; }
+    .layer[alt="others"] { z-index: 4; }
+    
+    /* Walking animation layers */
+    .layer[alt="body_walk1"] { z-index: 1; }
+    .layer[alt="clothes_walk1"] { z-index: 2; }
+    .layer[alt="face_walk1"] { z-index: 3; }
+    .layer[alt="others_walk1"] { z-index: 4; }
+    
+    .layer[alt="body_walk2"] { z-index: 1; }
+    .layer[alt="clothes_walk2"] { z-index: 2; }
+    .layer[alt="face_walk2"] { z-index: 3; }
+    .layer[alt="others_walk2"] { z-index: 4; }
+    
+    /* Tired layers */
+    .layer[alt="body_tired"] { z-index: 1; }
+    .layer[alt="clothes_tired"] { z-index: 2; }
+    .layer[alt="face_tired"] { z-index: 3; }
+    .layer[alt="others_tired"] { z-index: 4; }
+    
+    /* Sign layers */
+    .layer[alt="body_sign"] { z-index: 1; }
+    .layer[alt="clothes_sign"] { z-index: 2; }
+    .layer[alt="face_sign"] { z-index: 3; }
+    .layer[alt="others_sign"] { z-index: 4; }
+    
+    /* Hi layers */
+    .layer[alt="body_hi"] { z-index: 1; }
+    .layer[alt="clothes_hi"] { z-index: 2; }
+    .layer[alt="face_hi"] { z-index: 3; }
+    .layer[alt="others_hi"] { z-index: 4; }
+    .label {
+      position: absolute; left: 50%; bottom: 100%; transform: translate(-50%, -6px);
+      color: black; font: 600 14px/1.2 -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      text-shadow: 0 1px 2px rgba(255,255,255,.9);
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div id="stage"></div>
+  
+  <!-- Race elements -->
+  <div class="race-track" id="raceTrack"></div>
+  <div class="race-countdown" id="raceCountdown"></div>
+  <div class="race-winner" id="raceWinner"></div>
+
+  <!-- Food Game Elements -->
+  <div class="food-game-area" id="foodGameArea"></div>
+  <div class="food-game-countdown" id="foodGameCountdown"></div>
+  <div class="food-game-winner" id="foodGameWinner"></div>
+
+  <!-- Race Plan Elements -->
+  <div class="race-plan-area" id="racePlanArea"></div>
+  <div class="race-plan-countdown" id="racePlanCountdown"></div>
+  <div class="race-plan-winner" id="racePlanWinner"></div>
+  
+
+  <script>
+    // Default assets - will be updated when user avatar is loaded
+    let ASSETS = {
+      body: '/parts/body/body_skin_1.png',
+      face: '/parts/face/face_skin_1.png',
+      clothes: '/parts/clothes/clothes_type_1.png',
+      others: '/parts/others/others_1.png'
+    };
+
+    // User avatar cache
+    const userAvatars = new Map();
+
+    // Avatar state management functions
+    function stopAvatarIntervals(avatar) {
+      // выключаем любые ранее запущенные интервалы
+      if (avatar.dataset.walkInterval) {
+        clearInterval(Number(avatar.dataset.walkInterval));
+        delete avatar.dataset.walkInterval;
+      }
+      if (avatar.dataset.tiredInterval) {
+        clearInterval(Number(avatar.dataset.tiredInterval));
+        delete avatar.dataset.tiredInterval;
+      }
+      if (avatar.dataset.animationInterval) {
+        clearInterval(Number(avatar.dataset.animationInterval));
+        delete avatar.dataset.animationInterval;
+      }
+    }
+
+    function showOnlyLayers(avatar, { staticOn = false, walk1On = false, walk2On = false, tiredOn = false, signOn = false, hiOn = false }) {
+      avatar.querySelectorAll('.layer.static').forEach(l => l.style.setProperty('opacity', staticOn ? '1' : '0', 'important'));
+      avatar.querySelectorAll('.layer.walk1').forEach(l => l.style.setProperty('opacity', walk1On ? '1' : '0', 'important'));
+      avatar.querySelectorAll('.layer.walk2').forEach(l => l.style.setProperty('opacity', walk2On ? '1' : '0', 'important'));
+      avatar.querySelectorAll('.layer.tired').forEach(l => l.style.setProperty('opacity', tiredOn ? '1' : '0', 'important'));
+      avatar.querySelectorAll('.layer.sign').forEach(l => l.style.setProperty('opacity', signOn ? '1' : '0', 'important'));
+      avatar.querySelectorAll('.layer.hi').forEach(l => l.style.setProperty('opacity', hiOn ? '1' : '0', 'important'));
+    }
+
+    function startWalkingAnimation(avatar, fps = 8) {
+      // защита от двойного запуска
+      if (avatar.dataset.walkInterval) return;
+
+      let isWalk1 = true;
+
+      const interval = setInterval(() => {
+        if (isWalk1) {
+          showOnlyLayers(avatar, { walk1On: true, walk2On: false });
+        } else {
+          showOnlyLayers(avatar, { walk1On: false, walk2On: true });
+        }
+        isWalk1 = !isWalk1;
+      }, 1000 / fps);
+
+      avatar.dataset.walkInterval = String(interval);
+    }
+
+    function setAvatarState(avatar, state) {
+      // чистим хвосты прошлых состояний
+      stopAvatarIntervals(avatar);
+      avatar.classList.remove('static', 'walking', 'tired');
+
+      switch (state) {
+        case 'static': {
+          avatar.classList.add('static');
+          showOnlyLayers(avatar, { staticOn: true, walk1On: false, walk2On: false, tiredOn: false, signOn: false, hiOn: false });
+          // Останавливаем анимацию усталости если была
+          if (avatar.dataset.tiredInterval) {
+            clearInterval(parseInt(avatar.dataset.tiredInterval));
+            avatar.dataset.tiredInterval = '';
+            avatar.style.transform = '';
+          }
+          break;
+        }
+        case 'walking': {
+          avatar.classList.add('walking');
+          // показываем кадр walk1 и запускаем тумблер кадров
+          showOnlyLayers(avatar, { walk1On: true, walk2On: false, staticOn: false, tiredOn: false, signOn: false, hiOn: false });
+          startWalkingAnimation(avatar);
+          break;
+        }
+        case 'tired': {
+          avatar.classList.add('tired');
+          // если у тебя есть отдельные слои усталости, отобразим их:
+          if (avatar.querySelector('.layer.tired')) {
+            showOnlyLayers(avatar, { tiredOn: true, staticOn: false, walk1On: false, walk2On: false, signOn: false, hiOn: false });
+          } else {
+            // fallback — просто статик
+            showOnlyLayers(avatar, { staticOn: true, walk1On: false, walk2On: false, tiredOn: false, signOn: false, hiOn: false });
+          }
+          // Убираем анимацию покачивания - аватар должен быть статичным
+          if (avatar.dataset.tiredInterval) {
+            clearInterval(parseInt(avatar.dataset.tiredInterval));
+            avatar.dataset.tiredInterval = '';
+            avatar.style.transform = '';
+          }
+          break;
+        }
+        case 'sign': {
+          avatar.classList.add('sign');
+          // показываем слои sign
+          if (avatar.querySelector('.layer.sign')) {
+            showOnlyLayers(avatar, { signOn: true, staticOn: false, walk1On: false, walk2On: false, tiredOn: false, hiOn: false });
+          } else {
+            // fallback — просто статик
+            showOnlyLayers(avatar, { staticOn: true, walk1On: false, walk2On: false, tiredOn: false, signOn: false, hiOn: false });
+          }
+          break;
+        }
+        case 'hi': {
+          avatar.classList.add('hi');
+          // показываем слои hi
+          if (avatar.querySelector('.layer.hi')) {
+            showOnlyLayers(avatar, { hiOn: true, staticOn: false, walk1On: false, walk2On: false, tiredOn: false, signOn: false });
+          } else {
+            // fallback — просто статик
+            showOnlyLayers(avatar, { staticOn: true, walk1On: false, walk2On: false, tiredOn: false, signOn: false, hiOn: false });
+          }
+          break;
+        }
+      }
+    }
+
+    // Автоматическое управление состояниями при обновлении позиций
+    function updateAvatarPosition(avatarContainer, nextX, nextY) {
+      const prev = avatarContainer._prevPos || { x: nextX, y: nextY };
+      const moving = (Math.abs(nextX - prev.x) + Math.abs(nextY - prev.y)) > 0.5;
+
+      const avatar = avatarContainer.querySelector('.avatar');
+      if (avatar) {
+        if (moving && !avatar.classList.contains('walking')) {
+          setAvatarState(avatar, 'walking');
+        } else if (!moving && !avatar.classList.contains('static')) {
+          setAvatarState(avatar, 'static');
+        }
+      }
+
+      avatarContainer.style.transform = `translate(${nextX}px, ${nextY}px)`;
+      avatarContainer._prevPos = { x: nextX, y: nextY };
+    }
+
+    // Race state
+    let raceState = {
+      isActive: false,
+      participants: new Map(), // userId -> race avatar element
+      positions: new Map(), // userId -> current position (0-100)
+      speeds: new Map(), // userId -> current speed
+      modifiers: new Map(), // userId -> speed modifier
+      winner: null
+    };
+
+    // Load user avatar data
+    async function loadUserAvatar(userId) {
+      if (userAvatars.has(userId)) {
+        return userAvatars.get(userId);
+      }
+
+      try {
+        const response = await fetch(`/api/avatar/${userId}`);
+        const data = await response.json();
+        
+        if (data.success) {
+          const avatar = data.data;
+          
+          // Extract IDs from the full names
+          const bodyId = avatar.body_skin ? avatar.body_skin.replace('body_skin_', '') : '1';
+          const faceId = avatar.face_skin ? avatar.face_skin.replace('face_skin_', '') : '1';
+          const clothesId = avatar.clothes_type ? avatar.clothes_type.replace('clothes_type_', '') : '1';
+          const othersId = avatar.others_type ? avatar.others_type.replace('others_', '') : '1';
+          
+          const userAssets = {
+            body: `/parts/body/${avatar.body_skin || 'body_skin_1'}.png`,
+            face: `/parts/face/${avatar.face_skin || 'face_skin_1'}.png`,
+            clothes: `/parts/clothes/${avatar.clothes_type || 'clothes_type_1'}.png`,
+            others: `/parts/others/${avatar.others_type || 'others_1'}.png`,
+            // Store the extracted IDs for use in other states
+            bodyId: bodyId,
+            faceId: faceId,
+            clothesId: clothesId,
+            othersId: othersId
+          };
+          
+          userAvatars.set(userId, userAssets);
+          return userAssets;
+        }
+      } catch (error) {
+        console.error('Error loading user avatar:', error);
+      }
+      
+      // Return default assets if loading failed
+      userAvatars.set(userId, ASSETS);
+      return ASSETS;
+    }
+
+    const stage = document.getElementById('stage');
+    const active = new Map();
+    const lastActivity = new Map(); // Track last message time per user
+
+    function randomX() {
+      const vw = Math.max(window.innerWidth, 320);
+      const margin = 20; const width = 120;
+      return Math.floor(Math.random() * Math.max(1, vw - width - margin*2)) + margin;
+    }
+
+    function createAvatar({ userId, displayName, color, avatarData }) {
+      // Remove existing avatar if it exists (for updates)
+      if (active.has(userId)) {
+        const existingAvatar = active.get(userId);
+        existingAvatar.remove();
+        active.delete(userId);
+      }
+
+      const root = document.createElement('div');
+      root.className = 'avatar';
+      root.id = `avatar-${userId}`;
+      root.style.left = randomX() + 'px';
+      root.dataset.userId = userId;
+      root.dataset.displayName = displayName || 'Guest';
+      root.dataset.color = color || '#ffffff';
+
+      const label = document.createElement('div');
+      label.className = 'label';
+      label.textContent = displayName || 'Guest';
+      root.appendChild(label);
+
+      // Use saved avatar data or defaults
+      const assets = {
+        body: avatarData?.body || `/parts/body/${avatarData?.body_skin || 'body_skin_1'}.png`,
+        face: avatarData?.face || `/parts/face/${avatarData?.face_skin || 'face_skin_1'}.png`,
+        clothes: avatarData?.clothes || `/parts/clothes/${avatarData?.clothes_type || 'clothes_type_1'}.png`,
+        others: avatarData?.others || `/parts/others/${avatarData?.others_type || 'others_1'}.png`
+      };
+
+      // Create walking animation layers using user's avatar data
+      const walkAssets = {
+        body: `/parts/body_walk_1/body_walk_1_skin_${avatarData?.bodyId || '1'}.png`,
+        face: `/parts/face_walk_1/face_walk_1_skin_${avatarData?.faceId || '1'}.png`,
+        clothes: `/parts/clothes_walk_1/clothes_walk_1_type_${avatarData?.clothesId || '1'}.png`,
+        others: `/parts/others_walk_1/others_walk_1_type_${avatarData?.othersId || '1'}.png`
+      };
+
+      const walk2Assets = {
+        body: `/parts/body_walk_2/body_walk_2_skin_${avatarData?.bodyId || '1'}.png`,
+        face: `/parts/face_walk_2/face_walk_2_skin_${avatarData?.faceId || '1'}.png`,
+        clothes: `/parts/clothes_walk_2/clothes_walk_2_type_${avatarData?.clothesId || '1'}.png`,
+        others: `/parts/others_walk_2/others_walk_2_${avatarData?.othersId || '1'}.png`
+      };
+
+      // Create static layers (default pose)
+      for (const key of ['body','clothes','face','others']) {
+        const img = document.createElement('img');
+        img.className = 'layer static';
+        img.alt = key;
+        img.src = assets[key];
+        img.onload = () => console.log(`Loaded static layer: ${key} - ${assets[key]}`);
+        img.onerror = () => console.log(`Failed to load static layer: ${key} - ${assets[key]}`);
+        root.appendChild(img);
+      }
+
+      // Create walking animation layers (initially hidden)
+      for (const key of ['body','clothes','face','others']) {
+        const img = document.createElement('img');
+        img.className = 'layer walk1';
+        img.alt = `${key}_walk1`;
+        img.src = walkAssets[key];
+        img.style.opacity = '0';
+        img.onload = () => console.log(`Loaded walk1 layer: ${key} - ${walkAssets[key]}`);
+        img.onerror = () => console.log(`Failed to load walk1 layer: ${key} - ${walkAssets[key]}`);
+        root.appendChild(img);
+      }
+
+      for (const key of ['body','clothes','face','others']) {
+        const img = document.createElement('img');
+        img.className = 'layer walk2';
+        img.alt = `${key}_walk2`;
+        img.src = walk2Assets[key];
+        img.style.opacity = '0';
+        root.appendChild(img);
+      }
+
+      // Create tired layers (initially hidden) using user's avatar data
+      const tiredAssets = {
+        body: `/parts/body_tired/body_tired_skin_${avatarData?.bodyId || '1'}.png`,
+        face: `/parts/face_tired/face_tired_skin_${avatarData?.faceId || '1'}.png`,
+        clothes: `/parts/clothes_tired/clothes_tired_type_${avatarData?.clothesId || '1'}.png`,
+        others: `/parts/others_tired/others_tired_${avatarData?.othersId || '1'}_1.png`
+      };
+
+      for (const key of ['body','clothes','face','others']) {
+        const img = document.createElement('img');
+        img.className = 'layer tired';
+        img.alt = `${key}_tired`;
+        img.src = tiredAssets[key];
+        img.style.opacity = '0';
+        img.onload = () => console.log(`Loaded tired layer: ${key}`);
+        img.onerror = () => console.log(`Failed to load tired layer: ${key} - ${tiredAssets[key]}`);
+        root.appendChild(img);
+      }
+
+      // Create sign layers (initially hidden) using user's avatar data
+      const signAssets = {
+        body: `/parts/body_sign/body_sign_skin_${avatarData?.bodyId || '1'}.png`,
+        face: `/parts/face_sign/face_sign_skin_${avatarData?.faceId || '1'}.png`,
+        clothes: `/parts/clothes_sign/clothes_sign_type_${avatarData?.clothesId || '1'}.png`,
+        others: `/parts/others_sign/others_sign_${avatarData?.othersId || '1'}.png`
+      };
+
+      for (const key of ['body','clothes','face','others']) {
+        const img = document.createElement('img');
+        img.className = 'layer sign';
+        img.alt = `${key}_sign`;
+        img.src = signAssets[key];
+        img.style.opacity = '0';
+        img.onload = () => console.log(`Loaded sign layer: ${key}`);
+        img.onerror = () => console.log(`Failed to load sign layer: ${key} - ${signAssets[key]}`);
+        root.appendChild(img);
+      }
+
+      // Create hi layers (initially hidden) using user's avatar data
+      const hiAssets = {
+        body: `/parts/body_hi/body_hi_skin_${avatarData?.bodyId || '1'}.png`,
+        face: `/parts/face_hi/face_hi_skin_${avatarData?.faceId || '1'}.png`,
+        clothes: `/parts/clothes_hi/clothes_hi_type_${avatarData?.clothesId || '1'}.png`,
+        others: `/parts/others_hi/others_hi_${avatarData?.othersId || '1'}.png`
+      };
+
+      for (const key of ['body','clothes','face','others']) {
+        const img = document.createElement('img');
+        img.className = 'layer hi';
+        img.alt = `${key}_hi`;
+        img.src = hiAssets[key];
+        img.style.opacity = '0';
+        img.onload = () => console.log(`Loaded hi layer: ${key}`);
+        img.onerror = () => console.log(`Failed to load hi layer: ${key} - ${hiAssets[key]}`);
+        root.appendChild(img);
+      }
+
+      // Create emoji element
+      const emojiEl = document.createElement('div');
+      emojiEl.className = 'emoji';
+      emojiEl.style.display = 'none';
+      root.appendChild(emojiEl);
+
+      stage.appendChild(root);
+      active.set(userId, root);
+      lastActivity.set(userId, Date.now());
+
+      // Устанавливаем начальное состояние static
+      setAvatarState(root, 'static');
+
+      // Debug: check if others layer exists
+      setTimeout(() => {
+        const othersLayer = root.querySelector('.layer[alt="others"]');
+        console.log('Others layer found:', othersLayer);
+        console.log('Others layer src:', othersLayer?.src);
+        console.log('Others layer opacity:', othersLayer?.style.opacity);
+        console.log('Root classes:', root.className);
+      }, 1000);
+
+      // Server will handle timing via events
+    }
+
+    function removeAvatar(userId) {
+      const el = active.get(userId);
+      if (!el) return;
+      
+      // Clear all timeouts and intervals using new system
+      stopAvatarIntervals(el);
+      if (el.animationTimeout) clearTimeout(el.animationTimeout);
+      if (el.tiredTimeout) clearTimeout(el.tiredTimeout);
+      if (el.despawnTimeout) clearTimeout(el.despawnTimeout);
+      if (el.signTimeout) clearTimeout(el.signTimeout);
+      if (el.hiTimeout) clearTimeout(el.hiTimeout);
+      if (el.laughTimeout) clearTimeout(el.laughTimeout);
+      if (el.activityInterval) clearInterval(el.activityInterval);
+      
+      el.style.transition = 'transform .4s ease, opacity .4s ease';
+      el.style.opacity = '0';
+      el.style.transform += ' translateY(20px)';
+      setTimeout(() => {
+        el.remove();
+        active.delete(userId);
+        lastActivity.delete(userId);
+      }, 450);
+    }
+
+    function showEmoji(userId, emoji) {
+      const el = active.get(userId);
+      if (!el) return;
+      
+      // Update activity time
+      lastActivity.set(userId, Date.now());
+      
+      // Clear any existing timeouts
+      if (el.animationTimeout) {
+        clearTimeout(el.animationTimeout);
+      }
+      if (el.tiredTimeout) {
+        clearTimeout(el.tiredTimeout);
+      }
+      if (el.despawnTimeout) {
+        clearTimeout(el.despawnTimeout);
+      }
+      if (el.signTimeout) {
+        clearTimeout(el.signTimeout);
+      }
+      if (el.hiTimeout) {
+        clearTimeout(el.hiTimeout);
+      }
+      if (el.laughTimeout) {
+        clearTimeout(el.laughTimeout);
+      }
+      
+      // Clear any activity monitoring intervals
+      if (el.activityInterval) {
+        clearInterval(el.activityInterval);
+      }
+      
+      // Remove other states
+      el.classList.remove('tired', 'walking', 'left', 'hi');
+      
+      // Show sign state with emoji
+      el.classList.add('sign');
+      // Устанавливаем sign состояние
+      setAvatarState(el, 'sign');
+      const emojiEl = el.querySelector('.emoji');
+      if (emojiEl) {
+        // Clear previous content
+        emojiEl.innerHTML = '';
+        
+        // Check if it's a URL (Twitch emote image)
+        if (emoji.startsWith('http')) {
+          // Twitch emote - create image with load handling
+          const img = document.createElement('img');
+          img.src = emoji;
+          img.alt = 'emote';
+          img.style.height = '100%';
+          img.style.display = 'none'; // Hide until loaded
+          
+          img.onload = () => {
+            img.style.display = 'block';
+            emojiEl.style.display = 'block';
+          };
+          
+          img.onerror = () => {
+            // Fallback to text if image fails to load
+            emojiEl.textContent = '😀';
+            emojiEl.style.display = 'block';
+          };
+          
+          emojiEl.innerHTML = '';
+          emojiEl.appendChild(img);
+        } else {
+          // Unicode emoji - show as text
+          emojiEl.textContent = emoji;
+          emojiEl.style.display = 'block';
+        }
+      }
+      
+      // Lock movement during emoji display
+      el.dataset.locked = '1';
+      clearTimeout(el.lockTimer);
+      el.lockTimer = setTimeout(() => { 
+        el.dataset.locked = ''; 
+      }, 3200);
+      
+      console.log(`Showing emoji "${emoji}" for user ${userId}`);
+      console.log('Emoji element:', emojiEl);
+      console.log('Emoji text content:', emojiEl?.textContent);
+      
+      // Hide sign state after 3 seconds
+      el.signTimeout = setTimeout(() => {
+        el.classList.remove('sign');
+        if (emojiEl) {
+          emojiEl.style.display = 'none';
+        }
+        
+        // Return to base state
+        setAvatarState(el, 'static');
+        
+        // Server will handle tired state via events
+      }, 3000);
+    }
+
+    function showHi(userId) {
+      console.log(`[overlay] showHi called for userId: ${userId}`);
+      const el = active.get(userId);
+      if (!el) {
+        console.log(`[overlay] showHi: no avatar found for userId: ${userId}`);
+        return;
+      }
+      console.log(`[overlay] showHi: avatar found, proceeding with hi animation`);
+      
+      // Update activity time
+      lastActivity.set(userId, Date.now());
+      
+      // Clear any existing timeouts
+      if (el.animationTimeout) {
+        clearTimeout(el.animationTimeout);
+      }
+      if (el.tiredTimeout) {
+        clearTimeout(el.tiredTimeout);
+      }
+      if (el.despawnTimeout) {
+        clearTimeout(el.despawnTimeout);
+      }
+      if (el.signTimeout) {
+        clearTimeout(el.signTimeout);
+      }
+      if (el.hiTimeout) {
+        clearTimeout(el.hiTimeout);
+      }
+      if (el.laughTimeout) {
+        clearTimeout(el.laughTimeout);
+      }
+      
+      // Clear any activity monitoring intervals
+      if (el.activityInterval) {
+        clearInterval(el.activityInterval);
+      }
+      
+      // Remove other states
+      el.classList.remove('tired', 'walking', 'left', 'sign', 'laughing');
+      
+      // Show hi state
+      el.classList.add('hi');
+      // Устанавливаем hi состояние
+      setAvatarState(el, 'hi');
+      
+      // Lock movement during hi display
+      el.dataset.locked = '1';
+      clearTimeout(el.lockTimer);
+      el.lockTimer = setTimeout(() => { 
+        el.dataset.locked = ''; 
+      }, 5200);
+      
+      console.log(`Showing hi state for user ${userId}`);
+      
+      // Hide hi state after 5 seconds
+      el.hiTimeout = setTimeout(() => {
+        el.classList.remove('hi');
+        
+        // Return to base state
+        setAvatarState(el, 'static');
+        
+        // Server will handle tired state via events
+      }, 5000);
+    }
+
+    function showLaugh(userId) {
+      console.log(`[overlay] showLaugh called for userId: ${userId}`);
+      const el = active.get(userId);
+      if (!el) {
+        console.log(`[overlay] showLaugh: no avatar found for userId: ${userId}`);
+        return;
+      }
+      console.log(`[overlay] showLaugh: avatar found, proceeding with laugh animation`);
+      
+      // Update activity time
+      lastActivity.set(userId, Date.now());
+      
+      // Clear any existing timeouts
+      if (el.animationTimeout) {
+        clearTimeout(el.animationTimeout);
+      }
+      if (el.tiredTimeout) {
+        clearTimeout(el.tiredTimeout);
+      }
+      if (el.despawnTimeout) {
+        clearTimeout(el.despawnTimeout);
+      }
+      if (el.signTimeout) {
+        clearTimeout(el.signTimeout);
+      }
+      if (el.hiTimeout) {
+        clearTimeout(el.hiTimeout);
+      }
+      if (el.laughTimeout) {
+        clearTimeout(el.laughTimeout);
+      }
+      
+      // Clear any activity monitoring intervals
+      if (el.activityInterval) {
+        clearInterval(el.activityInterval);
+      }
+      
+      // Remove other states
+      el.classList.remove('tired', 'walking', 'left', 'sign', 'hi');
+      
+      // Show laugh animation
+      el.classList.add('laughing');
+      // Устанавливаем static состояние для laughing
+      setAvatarState(el, 'static');
+      
+      // Lock movement during laugh animation
+      el.dataset.locked = '1';
+      clearTimeout(el.lockTimer);
+      el.lockTimer = setTimeout(() => { 
+        el.dataset.locked = ''; 
+      }, 2000);
+      
+      console.log(`Showing laugh animation for user ${userId}`);
+      
+      // Remove laugh class after animation completes
+      el.laughTimeout = setTimeout(() => {
+        el.classList.remove('laughing');
+        
+        // Return to base state
+        setAvatarState(el, 'static');
+        
+        // Server will handle tired state via events
+      }, 1500);
+    }
+
+    function showGift(userId, giftData) {
+      const el = active.get(userId);
+      if (!el) return;
+      
+      // Update activity time
+      lastActivity.set(userId, Date.now());
+      
+      // Create gift element
+      const giftEl = document.createElement('div');
+      giftEl.className = 'gift';
+      
+      const img = document.createElement('img');
+      img.src = giftData.path;
+      img.alt = `${giftData.type} gift ${giftData.id}`;
+      giftEl.appendChild(img);
+      
+      el.appendChild(giftEl);
+      
+      // Remove gift element after animation
+      setTimeout(() => {
+        if (giftEl.parentNode) {
+          giftEl.parentNode.removeChild(giftEl);
+        }
+      }, 2000);
+      
+      console.log(`Showing gift ${giftData.type}_${giftData.id} for user ${userId}`);
+    }
+
+    function moveAvatar(userId, messageCount) {
+      const el = active.get(userId);
+      if (!el) return;
+      
+      // Debug: Log the received messageCount
+      console.log(`[moveAvatar] User: ${userId}, MessageCount: ${messageCount}, Type: ${typeof messageCount}`);
+      
+      // Check if movement is locked (during emoji display)
+      if (el.dataset.locked === '1') return;
+      
+      // Update activity time
+      lastActivity.set(userId, Date.now());
+      
+      // Clear any existing timeouts and intervals
+      if (el.animationTimeout) {
+        clearTimeout(el.animationTimeout);
+      }
+      if (el.tiredTimeout) {
+        clearTimeout(el.tiredTimeout);
+      }
+      if (el.despawnTimeout) {
+        clearTimeout(el.despawnTimeout);
+      }
+      if (el.signTimeout) {
+        clearTimeout(el.signTimeout);
+      }
+      if (el.activityInterval) {
+        clearInterval(el.activityInterval);
+      }
+      if (el.movementInterval) {
+        clearInterval(el.movementInterval);
+      }
+      
+      // Remove other states
+      el.classList.remove('tired', 'sign');
+      
+      // Start walking animation using new system immediately (if not already walking)
+      if (!el.classList.contains('walking')) {
+        setAvatarState(el, 'walking');
+      }
+      
+      // Ensure messageCount is a number and has a minimum value
+      const numMessageCount = parseInt(messageCount) || 1;
+      console.log(`[moveAvatar] Parsed messageCount: ${numMessageCount}`);
+      
+      // Calculate distance based on message count (more messages = longer distance)
+      const baseDistance = 10; // Base distance per message (reasonable movement)
+      const totalDistance = numMessageCount * baseDistance;
+      
+      console.log(`[moveAvatar] Total distance: ${totalDistance}px`);
+      
+      // Determine direction randomly (50/50 chance)
+      const direction = Math.random() < 0.5 ? 1 : -1;
+      const targetDistance = totalDistance * direction;
+      
+      console.log(`[moveAvatar] Direction: ${direction}, Target distance: ${targetDistance}px`);
+      
+      // Set direction class
+      if (direction < 0) {
+        el.classList.add('left');
+      } else {
+        el.classList.remove('left');
+      }
+      
+      // Start smooth movement with constant speed
+      startSmoothMovement(el, targetDistance);
+    }
+    
+    function startSmoothMovement(el, targetDistance) {
+      const currentLeft = parseInt(el.style.left) || 0;
+      const originalDirection = targetDistance > 0 ? 1 : -1;
+      
+      console.log(`[startSmoothMovement] Current position: ${currentLeft}px, Target distance: ${targetDistance}px, Direction: ${originalDirection}`);
+      
+      // Define screen boundaries
+      const minX = 0;
+      const maxX = window.innerWidth - 140; // avatar width
+      
+      // Start movement with bounce logic
+      startMovementWithBounce(el, currentLeft, targetDistance, originalDirection, minX, maxX);
+    }
+    
+    function startMovementWithBounce(el, startPosition, remainingDistance, direction, minX, maxX) {
+      const speed = 100; // pixels per second (constant speed)
+      let lastTime = Date.now();
+      let currentPosition = startPosition;
+      let currentDirection = direction;
+      let totalRemainingDistance = Math.abs(remainingDistance);
+      
+      console.log(`[startMovementWithBounce] Starting movement: position=${currentPosition}, remaining=${totalRemainingDistance}px, direction=${currentDirection}`);
+      
+      el.movementInterval = setInterval(() => {
+        const currentTime = Date.now();
+        const deltaTime = currentTime - lastTime; // time since last frame
+        const frameDistance = (speed * deltaTime) / 1000; // distance moved in this frame
+        
+        // Calculate new position
+        const newPosition = currentPosition + (frameDistance * currentDirection);
+        
+        // Check for boundary collision
+        if (newPosition <= minX) {
+          // Hit left boundary - bounce right
+          const distanceToBoundary = currentPosition - minX;
+          const remainingAfterBounce = totalRemainingDistance - distanceToBoundary;
+          
+          if (remainingAfterBounce > 0) {
+            currentPosition = minX;
+            currentDirection = 1; // reverse direction
+            totalRemainingDistance = remainingAfterBounce;
+            el.classList.remove('left'); // face right
+            
+            console.log(`[startMovementWithBounce] Hit left boundary, bouncing right. Remaining: ${totalRemainingDistance}px`);
+          } else {
+            // Movement complete
+            currentPosition = minX;
+            el.style.left = currentPosition + 'px';
+            finishMovement(el);
+            return;
+          }
+        } else if (newPosition >= maxX) {
+          // Hit right boundary - bounce left
+          const distanceToBoundary = maxX - currentPosition;
+          const remainingAfterBounce = totalRemainingDistance - distanceToBoundary;
+          
+          if (remainingAfterBounce > 0) {
+            currentPosition = maxX;
+            currentDirection = -1; // reverse direction
+            totalRemainingDistance = remainingAfterBounce;
+            el.classList.add('left'); // face left
+            
+            console.log(`[startMovementWithBounce] Hit right boundary, bouncing left. Remaining: ${totalRemainingDistance}px`);
+          } else {
+            // Movement complete
+            currentPosition = maxX;
+            el.style.left = currentPosition + 'px';
+            finishMovement(el);
+            return;
+          }
+        } else {
+          // Normal movement - check if we've moved the full remaining distance
+          const distanceMoved = Math.abs(newPosition - startPosition);
+          if (distanceMoved >= totalRemainingDistance) {
+            // Movement complete
+            currentPosition = startPosition + (totalRemainingDistance * currentDirection);
+            el.style.left = currentPosition + 'px';
+            finishMovement(el);
+            return;
+          } else {
+            currentPosition = newPosition;
+          }
+        }
+        
+        // Update avatar position
+        el.style.left = currentPosition + 'px';
+        
+        // Update time for next iteration
+        lastTime = currentTime;
+        
+      }, 16); // ~60fps for smooth animation
+    }
+    
+    function finishMovement(el) {
+      clearInterval(el.movementInterval);
+      el.movementInterval = null;
+      
+      // Stop walking animation immediately when movement completes
+      setAvatarState(el, 'static');
+      el.classList.remove('left');
+      
+      console.log(`[finishMovement] Movement completed for avatar`);
+    }
+
+    // Function to stop walking animation when movement ends
+    function stopWalkingAnimation(userId) {
+      const el = active.get(userId);
+      if (!el) return;
+      
+      // Clear any existing animation timeout
+      if (el.animationTimeout) {
+        clearTimeout(el.animationTimeout);
+        el.animationTimeout = null;
+      }
+      
+      // Clear movement interval if running
+      if (el.movementInterval) {
+        clearInterval(el.movementInterval);
+        el.movementInterval = null;
+      }
+      
+      // Stop walking animation and return to static state
+      setAvatarState(el, 'static');
+      el.classList.remove('left');
+    }
+
+    // Функция для анимации усталости
+    function startTiredAnimation(avatar) {
+      // Останавливаем предыдущую анимацию усталости если есть
+      if (avatar.dataset.tiredInterval) {
+        clearInterval(parseInt(avatar.dataset.tiredInterval));
+      }
+      
+      // Простая анимация покачивания для усталого аватара
+      let isLeft = false;
+      const interval = setInterval(() => {
+        if (avatar.classList.contains('tired')) {
+          // Покачивание влево-вправо
+          avatar.style.transform = `translateX(${isLeft ? '-2px' : '2px'})`;
+          isLeft = !isLeft;
+        } else {
+          // Если аватар больше не tired, останавливаем анимацию
+          clearInterval(interval);
+          avatar.style.transform = '';
+        }
+      }, 1000); // Каждую секунду
+      
+      avatar.dataset.tiredInterval = String(interval);
+    }
+
+    // Race functions
+    function startRace(data) {
+      console.log('Starting race with data:', data);
+      raceState.isActive = true;
+      raceState.participants.clear();
+      raceState.positions.clear();
+      raceState.speeds.clear();
+      raceState.modifiers.clear();
+      raceState.winner = null;
+
+      // Remove all existing avatars from screen
+      const existingAvatars = document.querySelectorAll('.avatar');
+      existingAvatars.forEach(avatar => {
+        // Очищаем интервалы перед удалением
+        stopAvatarIntervals(avatar);
+        avatar.remove();
+      });
+      // Очищаем Map активных аватаров
+      active.clear();
+      lastActivity.clear();
+      console.log('Removed all existing avatars');
+
+      // Show race track
+      document.getElementById('raceTrack').style.display = 'block';
+      console.log('Race track displayed');
+
+      // Create race avatars for participants
+      const createAvatars = async () => {
+        for (let index = 0; index < data.participants.length; index++) {
+          const userId = data.participants[index];
+          const userAssets = await loadUserAvatar(userId);
+          const raceAvatar = createRaceAvatar(userId, userAssets, index);
+          raceState.participants.set(userId, raceAvatar);
+          raceState.positions.set(userId, 0);
+          raceState.speeds.set(userId, 0.25); // Base speed (уменьшено в 4 раза)
+          raceState.modifiers.set(userId, 0);
+        }
+      };
+      
+      createAvatars();
+
+      // Start countdown
+      startRaceCountdown(data.countdown);
+    }
+
+    function createRaceAvatar(userId, userAssets, index) {
+      const raceContainer = document.createElement('div');
+      raceContainer.className = 'race-avatar';
+      raceContainer.style.top = `calc(50% + ${index * 60 - (raceState.participants.size - 1) * 30}px)`;
+
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.dataset.userId = userId;
+
+      // --- static ---
+      const baseLayers = ['body', 'face', 'clothes', 'others'];
+      baseLayers.forEach(layer => {
+        const img = document.createElement('img');
+        img.className = 'layer static';
+        img.alt = layer;
+        img.src = userAssets[layer]; // /parts/* из loadUserAvatar
+        avatar.appendChild(img);
+      });
+
+      // Подготовим ID слоёв для анимаций (они уже приходят из loadUserAvatar)
+      const bodyId    = userAssets.bodyId    || '1';
+      const faceId    = userAssets.faceId    || '1';
+      const clothesId = userAssets.clothesId || '1';
+      const othersId  = userAssets.othersId  || '1';
+
+      // --- walk1 ---
+      const walk1Src = {
+        body:    `/parts/body_walk_1/body_walk_1_skin_${bodyId}.png`,
+        face:    `/parts/face_walk_1/face_walk_1_skin_${faceId}.png`,
+        clothes: `/parts/clothes_walk_1/clothes_walk_1_type_${clothesId}.png`,
+        others:  `/parts/others_walk_1/others_walk_1_type_${othersId}.png`,
+      };
+      baseLayers.forEach(layer => {
+        const img = document.createElement('img');
+        img.className = 'layer walk1';
+        img.alt = `${layer}_walk1`;
+        img.src = walk1Src[layer];
+        avatar.appendChild(img);
+      });
+
+      // --- walk2 ---
+      const walk2Src = {
+        body:    `/parts/body_walk_2/body_walk_2_skin_${bodyId}.png`,
+        face:    `/parts/face_walk_2/face_walk_2_skin_${faceId}.png`,
+        clothes: `/parts/clothes_walk_2/clothes_walk_2_type_${clothesId}.png`,
+        others:  `/parts/others_walk_2/others_walk_2_${othersId}.png`,
+      };
+      baseLayers.forEach(layer => {
+        const img = document.createElement('img');
+        img.className = 'layer walk2';
+        img.alt = `${layer}_walk2`;
+        img.src = walk2Src[layer];
+        avatar.appendChild(img);
+      });
+
+      // --- tired ---
+      const tiredSrc = {
+        body:    `/parts/body_tired/body_tired_skin_${bodyId}.png`,
+        face:    `/parts/face_tired/face_tired_skin_${faceId}.png`,
+        clothes: `/parts/clothes_tired/clothes_tired_type_${clothesId}.png`,
+        others:  `/parts/others_tired/others_tired_${othersId}_1.png`,
+      };
+      baseLayers.forEach(layer => {
+        const img = document.createElement('img');
+        img.className = 'layer tired';
+        img.alt = `${layer}_tired`;
+        img.src = tiredSrc[layer];
+        avatar.appendChild(img);
+      });
+
+      raceContainer.appendChild(avatar);
+      document.body.appendChild(raceContainer);
+      
+      // Принудительно устанавливаем состояние static при создании
+      setAvatarState(avatar, 'static');
+      
+      return raceContainer;
+    }
+
+    function startRaceWalkingAnimation(avatar) {
+      // Используем новую систему состояний
+      setAvatarState(avatar, 'walking');
+    }
+
+    function startRaceCountdown(count) {
+      const countdownEl = document.getElementById('raceCountdown');
+      countdownEl.style.display = 'block';
+      
+      let current = count;
+      const interval = setInterval(() => {
+        if (current > 0) {
+          countdownEl.textContent = current;
+          current--;
+        } else {
+          clearInterval(interval);
+          countdownEl.style.display = 'none';
+          // Wait a bit for avatars to be created
+          setTimeout(() => {
+            startRaceMovement();
+          }, 1000);
+        }
+      }, 1000);
+    }
+
+    function startRaceMovement() {
+      // Change avatars to walking state when race starts
+      raceState.participants.forEach((avatarEl, userId) => {
+        const avatar = avatarEl.querySelector('.avatar');
+        if (avatar) {
+          // Используем новую систему состояний
+          setAvatarState(avatar, 'walking');
+        }
+      });
+      
+      const raceInterval = setInterval(() => {
+        if (!raceState.isActive) {
+          clearInterval(raceInterval);
+          return;
+        }
+
+        if (raceState.participants.size === 0) {
+          return;
+        }
+
+        raceState.participants.forEach((avatarEl, userId) => {
+          const currentPos = raceState.positions.get(userId) || 0;
+          const baseSpeed = raceState.speeds.get(userId) || 1;
+          const modifier = raceState.modifiers.get(userId) || 0;
+          const totalSpeed = baseSpeed + modifier;
+          
+          const newPos = Math.min(currentPos + totalSpeed, 100);
+          raceState.positions.set(userId, newPos);
+          
+          // Update position
+          const trackWidth = window.innerWidth - 40; // Account for margins
+          const leftPos = (newPos / 100) * trackWidth;
+          avatarEl.style.left = `${leftPos}px`;
+          
+          // Check for winner
+          if (newPos >= 100 && !raceState.winner) {
+            raceState.winner = userId;
+            // Move winner to center for trophy display
+            avatarEl.style.left = '50%';
+            avatarEl.style.transform = 'translateX(-50%)';
+            
+            // Emit race finish event to server
+            fetch('/api/race/finish', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ winnerId: userId })
+            }).catch(err => console.error('Error finishing race:', err));
+            
+            finishRace(userId);
+            clearInterval(raceInterval);
+          }
+        });
+      }, 50); // 20 FPS
+    }
+
+    function updateRaceSpeed(userId, modifier) {
+      if (raceState.modifiers.has(userId)) {
+        const currentModifier = raceState.modifiers.get(userId);
+        raceState.modifiers.set(userId, currentModifier + modifier);
+      }
+    }
+
+    function finishRace(winnerId) {
+      raceState.isActive = false;
+      
+      // Move winner to center and change to static state
+      const winnerAvatar = raceState.participants.get(winnerId);
+      if (winnerAvatar) {
+        const avatar = winnerAvatar.querySelector('.avatar');
+        if (avatar) {
+          // Используем новую систему состояний
+          setAvatarState(avatar, 'static');
+        }
+        winnerAvatar.style.left = '50%';
+        winnerAvatar.style.transform = 'translateX(-50%)';
+      }
+      
+      // Show winner
+      const winnerEl = document.getElementById('raceWinner');
+      winnerEl.textContent = '🏆 ПОБЕДИТЕЛЬ!';
+      winnerEl.style.display = 'block';
+      
+      // Hide after 5 seconds
+      setTimeout(() => {
+        winnerEl.style.display = 'none';
+        document.getElementById('raceTrack').style.display = 'none';
+        
+        // Remove race avatars and clean up animations
+        raceState.participants.forEach(avatarEl => {
+          // Clear all intervals using new system
+          const avatar = avatarEl.querySelector('.avatar');
+          if (avatar) {
+            stopAvatarIntervals(avatar);
+          }
+          avatarEl.remove();
+        });
+        
+        // Clear race state completely
+        raceState.participants.clear();
+        raceState.positions.clear();
+        raceState.speeds.clear();
+        raceState.modifiers.clear();
+        raceState.winner = null;
+        raceState.isActive = false;
+      }, 5000);
+    }
+
+    // Food Game State
+    const foodGameState = {
+      isActive: false,
+      participants: new Map(), // userId -> avatar element
+      scores: new Map(), // userId -> score
+      directions: new Map(), // userId -> direction (1 = right, -1 = left)
+      carrots: new Map(), // carrotId -> carrot element
+      speedModifiers: new Map(), // userId -> speed modifier
+      displayNames: new Map(), // userId -> display name
+      winner: null,
+      gameOver: false
+    };
+
+
+    /* === Plane race runtime === */
+    const planeGame = {
+      active: false,
+      started: false,
+      finished: false,
+      players: new Map(),
+      obstacles: new Map(),
+      rafId: null,
+      lastFrame: 0,
+      countdownTimer: null,
+      endTimeout: null
+    };
+
+    const PLANE_LANES = 5;
+    const PLANE_MAX_LIVES = 3;
+
+    function setRaceHeight() {
+      const h = Math.round(Math.max(260, Math.min(window.innerHeight * 0.35, 460)));
+      document.documentElement.style.setProperty('--race-h', `${h}px`);
+    }
+
+    function getRacePlanArea() {
+      return document.getElementById('racePlanArea');
+    }
+
+    function laneCenter(lane) {
+      const area = getRacePlanArea();
+      if (!area) return 0;
+      const laneIndex = Math.max(0, Math.min(PLANE_LANES - 1, Number.isFinite(lane) ? lane : 0));
+      const laneHeight = area.clientHeight / PLANE_LANES;
+      return (laneIndex + 0.5) * laneHeight;
+    }
+
+    function clampLane(lane) {
+      if (!Number.isFinite(lane)) return 1;
+      return Math.max(0, Math.min(PLANE_LANES - 1, Math.round(lane)));
+    }
+
+    function waitForImages(container) {
+      const imgs = Array.from(container.querySelectorAll('img'));
+      return Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise(resolve => {
+        img.addEventListener('load', resolve, { once: true });
+        img.addEventListener('error', resolve, { once: true });
+      })));
+    }
+
+    function sendAvatarMetrics(userId, rect) {
+      const halfW = rect.width / 2;
+      const halfH = rect.height / 2;
+      fetch('/api/race-plan/avatar-metrics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, halfW, halfH })
+      }).catch(err => console.error('Error sending avatar metrics:', err));
+    }
+
+    function positionPlanePlayer(player, immediate = false) {
+      const area = getRacePlanArea();
+      if (!area) return;
+      const rect = area.getBoundingClientRect();
+      const measuredWidth = player.el.offsetWidth || player.width || 0;
+      const measuredHeight = player.el.offsetHeight || player.height || 0;
+      const width = measuredWidth || 120;
+      const height = measuredHeight || 120;
+      if (!player.width || player.width !== width) {
+        player.width = width;
+      }
+      if (!player.height || player.height !== height) {
+        player.height = height;
+      }
+      const left = Math.max(0, Math.min(player.currentX - width / 2, Math.max(0, rect.width - width)));
+      const top = Math.max(0, Math.min(player.currentY - height / 2, Math.max(0, rect.height - height)));
+
+      if (immediate) {
+        const prev = player.el.style.transition;
+        player.el.style.transition = 'none';
+        player.el.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+        requestAnimationFrame(() => {
+          player.el.style.transition = prev || '';
+        });
+      } else {
+        player.el.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+      }
+    }
+
+    function positionPlaneObstacle(obstacle, immediate = false) {
+      const area = getRacePlanArea();
+      if (!area) return;
+      const rect = area.getBoundingClientRect();
+      const width = obstacle.width;
+      const height = obstacle.height;
+      const left = Math.max(-width, Math.min(obstacle.currentX - width / 2, rect.width));
+      const centerY = laneCenter(obstacle.lane);
+      const top = Math.max(-height, Math.min(centerY - height / 2, rect.height));
+
+      if (immediate) {
+        const prev = obstacle.el.style.transition;
+        obstacle.el.style.transition = 'none';
+        obstacle.el.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+        requestAnimationFrame(() => {
+          obstacle.el.style.transition = prev || '';
+        });
+      } else {
+        obstacle.el.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+      }
+    }
+
+    function updatePlaneTrackWidth() {
+      const area = getRacePlanArea();
+      if (!area) return;
+      const trackWidth = area.clientWidth;
+      if (!trackWidth) return;
+      fetch('/api/race-plan/update-track-width', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackWidth })
+      }).catch(err => console.error('Error updating track width:', err));
+    }
+
+    function updateLevelIndicator(level) {
+      // Level indicator removed - no longer needed
+      return;
+    }
+
+    function updatePlaneLives(userId, lives) {
+      const player = planeGame.players.get(userId);
+      if (!player) return;
+      const normalized = Math.max(0, Math.min(PLANE_MAX_LIVES, Number.isFinite(lives) ? lives : player.lives));
+      player.lives = normalized;
+      if (player.heartsEl) {
+        player.heartsEl.innerHTML = '';
+        for (let i = 0; i < PLANE_MAX_LIVES; i++) {
+          const heart = document.createElement('span');
+          heart.className = 'heart' + (i >= normalized ? ' empty' : '');
+          player.heartsEl.appendChild(heart);
+        }
+      }
+
+      if (normalized <= 0 && !player.removing) {
+        player.removing = true;
+        player.el.classList.add('eliminated');
+        setTimeout(() => {
+          player.el.remove();
+          planeGame.players.delete(userId);
+        }, 700);
+      }
+    }
+
+    function startPlaneLoop() {
+      if (planeGame.rafId) return;
+      planeGame.lastFrame = 0;
+      planeGame.rafId = requestAnimationFrame(planeLoop);
+    }
+
+    function stopPlaneLoop() {
+      if (planeGame.rafId) {
+        cancelAnimationFrame(planeGame.rafId);
+        planeGame.rafId = null;
+      }
+      planeGame.lastFrame = 0;
+    }
+
+    function planeLoop(timestamp) {
+      if (!planeGame.active) {
+        stopPlaneLoop();
+        return;
+      }
+
+      if (!planeGame.lastFrame) {
+        planeGame.lastFrame = timestamp;
+      }
+      const delta = Math.min(50, timestamp - planeGame.lastFrame);
+      planeGame.lastFrame = timestamp;
+      const smoothing = Math.min(1, delta / 120);
+
+      planeGame.players.forEach(player => {
+        if (player.removing) return;
+        player.currentX += (player.targetX - player.currentX) * Math.max(0.1, 0.18 * smoothing);
+        player.currentY += (player.targetY - player.currentY) * Math.max(0.1, 0.3 * smoothing);
+        positionPlanePlayer(player);
+      });
+
+      planeGame.obstacles.forEach(obstacle => {
+        obstacle.currentX += (obstacle.targetX - obstacle.currentX) * Math.max(0.12, 0.25 * smoothing);
+        obstacle.currentY = laneCenter(obstacle.lane);
+        positionPlaneObstacle(obstacle);
+        if (obstacle.currentX + obstacle.width < -200) {
+          obstacle.el.remove();
+          planeGame.obstacles.delete(obstacle.id);
+        }
+      });
+
+      planeGame.rafId = requestAnimationFrame(planeLoop);
+    }
+
+    function resetPlaneGame() {
+      if (planeGame.countdownTimer) {
+        clearInterval(planeGame.countdownTimer);
+        planeGame.countdownTimer = null;
+      }
+      if (planeGame.endTimeout) {
+        clearTimeout(planeGame.endTimeout);
+        planeGame.endTimeout = null;
+      }
+      stopPlaneLoop();
+      planeGame.players.forEach(player => player.el.remove());
+      planeGame.players.clear();
+      planeGame.obstacles.forEach(obstacle => obstacle.el.remove());
+      planeGame.obstacles.clear();
+      planeGame.active = false;
+      planeGame.started = false;
+      planeGame.finished = false;
+      const area = getRacePlanArea();
+      if (area) {
+        area.classList.remove('active');
+        area.style.display = 'none';
+        area.innerHTML = '';
+      }
+      const countdownEl = document.getElementById('racePlanCountdown');
+      if (countdownEl) {
+        countdownEl.style.display = 'none';
+        countdownEl.textContent = '';
+      }
+      const winnerEl = document.getElementById('racePlanWinner');
+      if (winnerEl) {
+        winnerEl.style.display = 'none';
+        winnerEl.textContent = '';
+      }
+      // Level indicator removed - no longer needed
+    }
+
+    async function createPlanePlayer(userId, lane) {
+      if (!userId) return;
+      const area = getRacePlanArea();
+      if (!area) return;
+
+      const assets = await loadUserAvatar(userId);
+
+      const wrapper = document.createElement('div');
+      wrapper.id = `race-plan-avatar-${userId}`;
+      wrapper.className = 'race-plan-avatar';
+      wrapper.dataset.userId = userId;
+
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.dataset.userId = userId;
+
+      const baseLayers = ['body', 'face', 'clothes', 'others'];
+      baseLayers.forEach((layer, index) => {
+        const img = document.createElement('img');
+        img.className = 'layer static';
+        img.alt = layer;
+        img.src = assets[layer];
+        if (index === 0) {
+          img.classList.add('hitbox-target');
+        }
+        avatar.appendChild(img);
+      });
+
+      wrapper.appendChild(avatar);
+
+      const livesDisplay = document.createElement('div');
+      livesDisplay.className = 'lives-display';
+      wrapper.appendChild(livesDisplay);
+
+      area.appendChild(wrapper);
+
+      await waitForImages(wrapper);
+      const rect = avatar.getBoundingClientRect();
+      const width = rect.width || 120;
+      const height = rect.height || 120;
+
+      if (width && height) {
+        wrapper.style.width = `${width}px`;
+        wrapper.style.height = `${height}px`;
+      }
+
+      const player = {
+        id: userId,
+        el: wrapper,
+        avatarEl: avatar,
+        heartsEl: livesDisplay,
+        lane: clampLane(lane ?? 2),
+        targetLane: clampLane(lane ?? 2),
+        currentX: 50,
+        targetX: 50,
+        currentY: laneCenter(lane ?? 2),
+        targetY: laneCenter(lane ?? 2),
+        width,
+        height,
+        lives: PLANE_MAX_LIVES,
+        removing: false
+      };
+
+      planeGame.players.set(userId, player);
+      updatePlaneLives(userId, PLANE_MAX_LIVES);
+      positionPlanePlayer(player, true);
+      sendAvatarMetrics(userId, { width, height });
+    }
+
+    function startPlaneCountdown(seconds) {
+      const countdownEl = document.getElementById('racePlanCountdown');
+      if (!countdownEl) {
+        beginPlaneRace();
+        return;
+      }
+
+      let remaining = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 3;
+      countdownEl.style.display = 'block';
+      countdownEl.textContent = remaining;
+
+      if (planeGame.countdownTimer) {
+        clearInterval(planeGame.countdownTimer);
+      }
+
+      startPlaneLoop();
+
+      planeGame.countdownTimer = setInterval(() => {
+        remaining -= 1;
+        if (remaining > 0) {
+          countdownEl.textContent = remaining;
+          return;
+        }
+
+        clearInterval(planeGame.countdownTimer);
+        planeGame.countdownTimer = null;
+        countdownEl.style.display = 'none';
+        beginPlaneRace();
+      }, 1000);
+    }
+
+    function beginPlaneRace() {
+      if (planeGame.started) return;
+      planeGame.started = true;
+      updatePlaneTrackWidth();
+      startPlaneLoop();
+    }
+
+    async function startRacePlan(data) {
+      console.log('Starting plane race with data:', data);
+      resetPlaneGame();
+      setRaceHeight();
+      const area = getRacePlanArea();
+      if (!area) {
+        console.error('racePlanArea element not found');
+        return;
+      }
+
+      planeGame.active = true;
+      planeGame.finished = false;
+      area.innerHTML = '';
+      area.classList.add('active');
+      area.style.display = 'block';
+
+      const finish = document.createElement('div');
+      finish.className = 'race-plan-finish';
+      area.appendChild(finish);
+
+      const participants = Array.isArray(data?.participants) ? data.participants : [];
+      for (const userId of participants) {
+        const lane = data?.levels && data.levels[userId] !== undefined ? data.levels[userId] : 2;
+        await createPlanePlayer(userId, lane);
+      }
+
+      if (data?.lives) {
+        Object.entries(data.lives).forEach(([userId, lives]) => updatePlaneLives(userId, lives));
+      }
+
+      if (data?.positions) {
+        Object.entries(data.positions).forEach(([userId, pos]) => setPlanePosition(userId, pos));
+      }
+
+      updatePlaneTrackWidth();
+      startPlaneCountdown(data && Number.isFinite(+data.countdown) ? +data.countdown : 3);
+    }
+
+    function setPlanePosition(userId, position = {}) {
+      const player = planeGame.players.get(userId);
+      if (!player) return;
+      if (position && Number.isFinite(position.x)) {
+        player.targetX = position.x;
+        if (!Number.isFinite(player.currentX)) {
+          player.currentX = position.x;
+        }
+      }
+      positionPlanePlayer(player);
+    }
+
+    function setPlaneLane(userId, lane) {
+      const player = planeGame.players.get(userId);
+      if (!player) return;
+      const clamped = clampLane(lane);
+      player.targetLane = clamped;
+      player.targetY = laneCenter(clamped);
+    }
+
+    function spawnPlaneObstacle(data) {
+      const area = getRacePlanArea();
+      if (!area || !data?.id) return;
+      if (planeGame.obstacles.has(data.id)) {
+        updateObstacleTargets([data]);
+        return;
+      }
+
+      const el = document.createElement('div');
+      el.className = 'race-plan-obstacle';
+      if (data.type) {
+        el.classList.add(`type-${data.type}`);
+      }
+      el.dataset.id = data.id;
+      area.appendChild(el);
+
+      const obstacle = {
+        id: data.id,
+        el,
+        lane: clampLane(data.lane ?? 2),
+        width: el.offsetWidth || 56,
+        height: el.offsetHeight || 36,
+        currentX: Number.isFinite(data.x) ? data.x : area.clientWidth + 150,
+        targetX: Number.isFinite(data.x) ? data.x : area.clientWidth + 150
+      };
+      planeGame.obstacles.set(data.id, obstacle);
+      positionPlaneObstacle(obstacle, true);
+    }
+
+    function updateObstacleTargets(list) {
+      if (!Array.isArray(list)) return;
+      list.forEach(data => {
+        if (!data || !data.id) return;
+        let obstacle = planeGame.obstacles.get(data.id);
+        if (!obstacle) {
+          spawnPlaneObstacle(data);
+          obstacle = planeGame.obstacles.get(data.id);
+        }
+        if (!obstacle) return;
+        obstacle.lane = clampLane(data.lane ?? obstacle.lane ?? 2);
+        obstacle.targetX = Number.isFinite(data.x) ? data.x : obstacle.targetX;
+        obstacle.targetY = laneCenter(obstacle.lane);
+      });
+    }
+
+    function removePlaneObstacle(id) {
+      const obstacle = planeGame.obstacles.get(id);
+      if (!obstacle) return;
+      obstacle.el.classList.add('fading');
+      setTimeout(() => {
+        obstacle.el.remove();
+        planeGame.obstacles.delete(id);
+      }, 250);
+    }
+
+    async function handlePlaneMonitoring(data) {
+      if (!data) return;
+      const participants = Array.isArray(data.participants) ? data.participants : [];
+      for (const userId of participants) {
+        if (!planeGame.players.has(userId)) {
+          const lane = data?.levels && data.levels[userId] !== undefined ? data.levels[userId] : 2;
+          await createPlanePlayer(userId, lane);
+        }
+        if (data.positions && data.positions[userId]) {
+          setPlanePosition(userId, data.positions[userId]);
+        }
+        if (data.levels && data.levels[userId] !== undefined) {
+          setPlaneLane(userId, data.levels[userId]);
+        }
+        if (data.lives && data.lives[userId] !== undefined) {
+          updatePlaneLives(userId, data.lives[userId]);
+        }
+      }
+    }
+
+    async function handlePlaneRaceState(state) {
+      if (!state) return;
+      planeGame.started = !!state.started;
+      planeGame.finished = !!state.finished;
+      if (planeGame.started) {
+        startPlaneLoop();
+      }
+
+      const players = Array.isArray(state.players) ? state.players : [];
+      for (const playerState of players) {
+        if (!playerState || !playerState.id) continue;
+        if (!planeGame.players.has(playerState.id)) {
+          await createPlanePlayer(playerState.id, playerState.lane ?? 2);
+        }
+        setPlaneLane(playerState.id, playerState.lane ?? 2);
+        setPlanePosition(playerState.id, { x: playerState.x });
+        updatePlaneLives(playerState.id, playerState.lives ?? PLANE_MAX_LIVES);
+        if (playerState.out) {
+          updatePlaneLives(playerState.id, 0);
+        }
+      }
+    }
+
+    function handlePlaneCollision(userId, lives) {
+      const player = planeGame.players.get(userId);
+      if (!player) return;
+      player.el.classList.add('hit');
+      setTimeout(() => player.el.classList.remove('hit'), 450);
+      updatePlaneLives(userId, lives);
+    }
+
+    function handlePlaneRaceEnd(data) {
+      planeGame.finished = true;
+      planeGame.started = false;
+      const winnerEl = document.getElementById('racePlanWinner');
+      if (!winnerEl) return;
+
+      if (data?.noWinners) {
+        winnerEl.textContent = '💀 ПОБЕДИТЕЛЕЙ НЕТ!';
+        winnerEl.style.color = '#ff6b6b';
+      } else if (data?.winnerName) {
+        winnerEl.textContent = `🏆 ${data.winnerName} ПОБЕДИЛ!`;
+        winnerEl.style.color = '#ffd700';
+      } else {
+        winnerEl.textContent = '';
+      }
+
+      winnerEl.style.display = 'block';
+
+      if (planeGame.endTimeout) {
+        clearTimeout(planeGame.endTimeout);
+      }
+
+      planeGame.endTimeout = setTimeout(() => {
+        resetPlaneGame();
+      }, 5000);
+    }
+
+    function handlePlaneResize() {
+      setRaceHeight();
+      if (!planeGame.active) return;
+      planeGame.players.forEach(player => {
+        player.targetY = laneCenter(player.targetLane ?? player.lane);
+        player.currentY = player.targetY;
+        positionPlanePlayer(player, true);
+      });
+      planeGame.obstacles.forEach(obstacle => {
+        obstacle.currentY = laneCenter(obstacle.lane);
+        positionPlaneObstacle(obstacle, true);
+      });
+      updatePlaneTrackWidth();
+    }
+
+    window.addEventListener('resize', handlePlaneResize);
+    setRaceHeight();
+
+    function startFoodGame(data) {
+      console.log('Starting food game with data:', data);
+      foodGameState.isActive = true;
+      foodGameState.gameOver = false;
+      foodGameState.participants.clear();
+      foodGameState.scores.clear();
+      foodGameState.directions.clear();
+      foodGameState.carrots.clear();
+      foodGameState.speedModifiers.clear();
+      foodGameState.winner = null;
+
+      // Remove all existing avatars from screen
+      const existingAvatars = document.querySelectorAll('.avatar');
+      existingAvatars.forEach(avatar => {
+        // Очищаем интервалы перед удалением
+        stopAvatarIntervals(avatar);
+        avatar.remove();
+      });
+      // Очищаем Map активных аватаров
+      active.clear();
+      lastActivity.clear();
+      console.log('Removed all existing avatars for food game');
+
+      // Show food game area
+      document.getElementById('foodGameArea').style.display = 'block';
+      console.log('Food game area displayed');
+
+      // Create food game avatars for participants
+      const createAvatars = async () => {
+        for (const participant of data.participants) {
+          const userId = typeof participant === 'object' ? participant.userId : participant;
+          const displayName = typeof participant === 'object' ? participant.displayName : null;
+          await createFoodGameAvatar(userId, displayName);
+        }
+      };
+      createAvatars();
+
+      // Start countdown
+      startFoodGameCountdown(data.countdown);
+    }
+
+    async function createFoodGameAvatar(userId, displayName) {
+      // Load user avatar data
+      const userAssets = await loadUserAvatar(userId);
+      
+      // Create new avatar element
+      const foodGameAvatar = document.createElement('div');
+      foodGameAvatar.id = `food-game-avatar-${userId}`;
+      foodGameAvatar.style.position = 'absolute';
+      foodGameAvatar.style.bottom = '20px';
+      foodGameAvatar.style.left = '50px';
+      foodGameAvatar.style.zIndex = '1000';
+
+      const resolvedDisplayName = displayName || foodGameState.displayNames.get(userId) || null;
+
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.dataset.userId = userId;
+      if (resolvedDisplayName) {
+        avatar.dataset.displayName = resolvedDisplayName;
+      }
+
+      // --- static ---
+      const baseLayers = ['body', 'face', 'clothes', 'others'];
+      baseLayers.forEach(layer => {
+        const img = document.createElement('img');
+        img.className = 'layer static';
+        img.alt = layer;
+        img.src = userAssets[layer];
+        avatar.appendChild(img);
+      });
+
+      // Подготовим ID слоёв для анимаций
+      const bodyId    = userAssets.bodyId    || '1';
+      const faceId    = userAssets.faceId    || '1';
+      const clothesId = userAssets.clothesId || '1';
+      const othersId  = userAssets.othersId  || '1';
+
+      // --- walk1 ---
+      const walk1Src = {
+        body:    `/parts/body_walk_1/body_walk_1_skin_${bodyId}.png`,
+        face:    `/parts/face_walk_1/face_walk_1_skin_${faceId}.png`,
+        clothes: `/parts/clothes_walk_1/clothes_walk_1_type_${clothesId}.png`,
+        others:  `/parts/others_walk_1/others_walk_1_type_${othersId}.png`,
+      };
+      baseLayers.forEach(layer => {
+        const img = document.createElement('img');
+        img.className = 'layer walk1';
+        img.alt = `${layer}_walk1`;
+        img.src = walk1Src[layer];
+        avatar.appendChild(img);
+      });
+
+      // --- walk2 ---
+      const walk2Src = {
+        body:    `/parts/body_walk_2/body_walk_2_skin_${bodyId}.png`,
+        face:    `/parts/face_walk_2/face_walk_2_skin_${faceId}.png`,
+        clothes: `/parts/clothes_walk_2/clothes_walk_2_type_${clothesId}.png`,
+        others:  `/parts/others_walk_2/others_walk_2_${othersId}.png`,
+      };
+      baseLayers.forEach(layer => {
+        const img = document.createElement('img');
+        img.className = 'layer walk2';
+        img.alt = `${layer}_walk2`;
+        img.src = walk2Src[layer];
+        avatar.appendChild(img);
+      });
+
+      // --- tired ---
+      const tiredSrc = {
+        body:    `/parts/body_tired/body_tired_skin_${bodyId}.png`,
+        face:    `/parts/face_tired/face_tired_skin_${faceId}.png`,
+        clothes: `/parts/clothes_tired/clothes_tired_type_${clothesId}.png`,
+        others:  `/parts/others_tired/others_tired_${othersId}_1.png`,
+      };
+      baseLayers.forEach(layer => {
+        const img = document.createElement('img');
+        img.className = 'layer tired';
+        img.alt = `${layer}_tired`;
+        img.src = tiredSrc[layer];
+        avatar.appendChild(img);
+      });
+
+      foodGameAvatar.appendChild(avatar);
+      document.getElementById('foodGameArea').appendChild(foodGameAvatar);
+
+      // Set initial avatar state to show static layers
+      setAvatarState(avatar, 'static');
+
+      // Fix container dimensions to match avatar sprite
+      requestAnimationFrame(() => {
+        const r = avatar.getBoundingClientRect();
+        foodGameAvatar.style.width = r.width + 'px';
+        foodGameAvatar.style.height = r.height + 'px';
+      });
+
+      // Store in food game state
+      foodGameState.participants.set(userId, foodGameAvatar);
+      foodGameState.scores.set(userId, 0);
+      foodGameState.directions.set(userId, 1); // Start moving right
+      foodGameState.speedModifiers.set(userId, 0); // No speed modifier initially
+      if (resolvedDisplayName) {
+        foodGameState.displayNames.set(userId, resolvedDisplayName);
+      }
+
+      // Принудительно устанавливаем состояние static при создании
+      setAvatarState(avatar, 'static');
+
+      // --- ИЗМЕНЕНО: Создаем счетчик очков внутри контейнера аватара ---
+      const scoreCounter = document.createElement('div');
+      scoreCounter.className = 'score-counter';
+      scoreCounter.textContent = '0';
+      scoreCounter.id = `score-${userId}`;
+      // Позиционируем относительно контейнера аватара
+      scoreCounter.style.transformOrigin = 'center'; // Точка трансформации по центру
+      scoreCounter.style.pointerEvents = 'none'; // Не мешает взаимодействию
+      // Добавляем z-index, чтобы счетчик был поверх аватара
+      scoreCounter.style.zIndex = '1000';
+      // Добавляем уникальный data-атрибут для легкой связи
+      scoreCounter.dataset.userId = userId;
+      scoreCounter.style.setProperty('--score-flip', '1');
+
+      // Добавляем счетчик внутрь контейнера аватара, а не в foodGameArea напрямую
+      foodGameAvatar.appendChild(scoreCounter);
+      console.log(`Created food game avatar and score counter for user: ${userId}`, scoreCounter);
+      console.log(`Score counter ID: ${scoreCounter.id}`);
+      
+      // Инициализируем счетчик
+      updateScoreDisplay(userId, 0);
+      // --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+      console.log(`Created food game avatar for user: ${userId}`);
+    }
+
+    function startFoodGameWalkingAnimation(avatar) {
+      // Используем новую систему состояний
+      setAvatarState(avatar, 'walking');
+    }
+
+    function startFoodGameCountdown(count) {
+      const countdownEl = document.getElementById('foodGameCountdown');
+      countdownEl.style.display = 'block';
+      
+      let current = count;
+      const interval = setInterval(() => {
+        if (current > 0) {
+          countdownEl.textContent = current;
+          current--;
+        } else {
+          clearInterval(interval);
+          countdownEl.style.display = 'none';
+          // Wait a bit for avatars to be created
+          setTimeout(() => {
+            startFoodGameMovement();
+          }, 1000);
+        }
+      }, 1000);
+    }
+
+    function startFoodGameMovement() {
+      // Start moving avatars
+      const moveInterval = setInterval(() => {
+        if (!foodGameState.isActive || foodGameState.winner || foodGameState.gameOver) {
+          clearInterval(moveInterval);
+          return;
+        }
+
+        foodGameState.participants.forEach((avatarEl, userId) => {
+          const direction = foodGameState.directions.get(userId) || 1;
+          const speedModifier = foodGameState.speedModifiers.get(userId) || 0;
+          const currentLeft = parseInt(avatarEl.style.left) || 50;
+          const baseSpeed = 2; // Base movement speed
+          const totalSpeed = baseSpeed + (baseSpeed * speedModifier); // Apply speed modifier
+          const newLeft = currentLeft + (direction * totalSpeed);
+          
+          // Check if avatar hit screen boundaries
+          const minLeft = 50;
+          const maxLeft = window.innerWidth - 120;
+          let newDirection = direction;
+          let clampedLeft = newLeft;
+          let isMoving = true;
+          
+          if (newLeft <= minLeft) {
+            // Hit left boundary - reverse direction
+            clampedLeft = minLeft;
+            newDirection = 1; // Move right
+            foodGameState.directions.set(userId, newDirection);
+          } else if (newLeft >= maxLeft) {
+            // Hit right boundary - reverse direction
+            clampedLeft = maxLeft;
+            newDirection = -1; // Move left
+            foodGameState.directions.set(userId, newDirection);
+          }
+          
+          // Check if avatar actually moved
+          if (Math.abs(clampedLeft - currentLeft) < 0.1) {
+            isMoving = false;
+          }
+          
+          avatarEl.style.left = clampedLeft + 'px';
+          
+          // Start or stop walking animation based on movement
+          const avatar = avatarEl.querySelector('.avatar');
+          if (avatar) {
+            if (isMoving && !avatar.classList.contains('walking')) {
+              // Start walking animation
+              setAvatarState(avatar, 'walking');
+            } else if (!isMoving && !avatar.classList.contains('static')) {
+              // Stop walking animation and make static
+              setAvatarState(avatar, 'static');
+            }
+          }
+          
+          // Flip only the inner .avatar, not the whole container
+          if (avatar) {
+            avatar.style.transform = (newDirection > 0) ? 'scaleX(1)' : 'scaleX(-1)';
+          }
+
+          // keep classes for CSS hooks
+          avatarEl.classList.toggle('moving-right', newDirection > 0);
+          avatarEl.classList.toggle('moving-left', newDirection < 0);
+          
+        });
+
+        // --- Улучшенная проверка коллизий ---
+        // Проверяем КАЖДУЮ морковку на коллизию с КАЖДЫМ участником
+        foodGameState.participants.forEach((avatarElement, userId) => {
+            const avatarNode = avatarElement.querySelector('.avatar') || avatarElement;
+            const avatarRect = avatarNode.getBoundingClientRect();
+            const avatarLeft = avatarRect.left;
+            const avatarRight = avatarRect.right;
+            const avatarTop = avatarRect.top;
+            const avatarBottom = avatarRect.bottom;
+
+            // Итерируем по копии списка морковок, чтобы безопасно удалять
+            foodGameState.carrots.forEach((carrotElement, carrotId) => {
+                if (carrotElement.dataset.collected === 'true') {
+                    return;
+                }
+                const carrotRect = carrotElement.getBoundingClientRect();
+                const carrotLeft = carrotRect.left;
+                const carrotRight = carrotRect.right;
+                const carrotTop = carrotRect.top;
+                const carrotBottom = carrotRect.bottom;
+
+                // Проверка пересечения прямоугольников (AABB - Axis-Aligned Bounding Box)
+                if (avatarLeft < carrotRight &&
+                    avatarRight > carrotLeft &&
+                    avatarTop < carrotBottom &&
+                    avatarBottom > carrotTop) {
+
+                    // --- Коллизия обнаружена ---
+                    console.log(`Collision detected between user ${userId} and carrot ${carrotId}`);
+
+                    // Определяем, является ли морковка "приземлившейся"
+                    const isGrounded = carrotElement.classList.contains('grounded');
+
+                carrotElement.dataset.collected = 'true';
+
+                    // Обновляем счетчик очков
+                    let currentScore = foodGameState.scores.get(userId) || 0;
+                    // За каждую морковку дается 1 очко
+                    currentScore += 1;
+                    foodGameState.scores.set(userId, currentScore);
+
+                    // Обновляем отображение счетчика
+                    updateScoreDisplay(userId, currentScore);
+                    console.log(`Updated score for user ${userId} to ${currentScore}`);
+
+                    // Визуальный эффект сбора (например, анимация исчезновения)
+                    carrotElement.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                    carrotElement.style.opacity = '0';
+                    carrotElement.style.transform = 'scale(0.5)';
+
+                    // Удаляем морковку из состояния и DOM после анимации
+                    setTimeout(() => {
+                        if (carrotElement.parentNode) {
+                            carrotElement.remove();
+                        }
+                        foodGameState.carrots.delete(carrotId);
+                    }, 300); // Должно совпадать с длительностью transition
+
+                    // --- Проверка на победителя ---
+                    if (currentScore >= 10 && !foodGameState.winner) {
+                        foodGameState.winner = userId;
+                        foodGameState.isActive = false; // Останавливаем игру
+
+                        // Очищаем интервал движения
+                        clearInterval(moveInterval);
+                        foodGameState.moveInterval = null;
+
+                    // Получаем имя победителя из сохранённых данных
+                    let winnerName = foodGameState.displayNames.get(userId);
+                    if (!winnerName) {
+                        const winnerAvatar = foodGameState.participants.get(userId);
+                        winnerName = winnerAvatar ? winnerAvatar.querySelector('.avatar')?.dataset.displayName : null;
+                    }
+                    if (!winnerName) {
+                        const avatarData = userAvatars.get(userId);
+                        if (avatarData && avatarData.username) {
+                            winnerName = avatarData.username;
+                        }
+                    }
+                    if (!winnerName) {
+                        winnerName = `Пользователь ${userId}`;
+                    }
+
+                        // Отправляем запрос на сервер для завершения игры и определения победителя
+                        fetch('/api/food-game/finish', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ winnerId: userId, winnerName: winnerName })
+                        }).catch(err => console.error('Error finishing food game:', err));
+
+                        // --- Обновленная логика завершения игры ---
+                        // Останавливаем анимации у всех аватаров
+                        foodGameState.participants.forEach(avatarEl => {
+                            const avatar = avatarEl.querySelector('.avatar');
+                            if (avatar) {
+                                setAvatarState(avatar, 'static'); // Использем новую систему состояний
+                            }
+                        });
+
+                        // Позиционируем победителя по центру
+                        const winnerAvatar = foodGameState.participants.get(userId);
+                        if (winnerAvatar) {
+                            winnerAvatar.style.left = '50%';
+                            winnerAvatar.style.transform = 'translateX(-50%)'; // Центрируем
+                            // Убедимся, что аватар победителя статичен
+                            const avatar = winnerAvatar.querySelector('.avatar');
+                            if (avatar) {
+                                setAvatarState(avatar, 'static');
+                            }
+                        }
+
+                        // Показываем сообщение о победителе
+                        const winnerEl = document.getElementById('foodGameWinner');
+                        if (winnerEl) {
+                            winnerEl.textContent = `🏆 ${winnerName} ПОБЕДИЛ!`;
+                            winnerEl.style.display = 'block';
+                        }
+
+                        // Скрываем игровую область и очищаем состояние через 5 секунд
+                        setTimeout(() => {
+                            if (winnerEl) winnerEl.style.display = 'none';
+                            const foodGameArea = document.getElementById('foodGameArea');
+                            if (foodGameArea) foodGameArea.style.display = 'none';
+
+                            // Очищаем состояние игры
+                            foodGameState.participants.clear();
+                            foodGameState.scores.clear();
+                            foodGameState.directions.clear();
+                            foodGameState.speedModifiers.clear();
+                            foodGameState.carrots.forEach(c => c.remove()); // Удаляем оставшиеся морковки из DOM
+                            foodGameState.carrots.clear();
+                            foodGameState.winner = null;
+                            foodGameState.isActive = false;
+                            // Очищаем интервал, если он каким-то образом остался
+                            if (foodGameState.moveInterval) {
+                                 clearInterval(foodGameState.moveInterval);
+                                 foodGameState.moveInterval = null;
+                            }
+
+                        }, 5000);
+                    }
+                    // --- Конец проверки на победителя ---
+
+                }
+            });
+        });
+        // --- Конец улучшенной проверки коллизий ---
+      }, 33); // Update every 33ms (~30fps) for smoother movement
+    }
+
+    function startFoodGameMonitoring(data) {
+      console.log('Starting food game monitoring with data:', data);
+      // Initialize scores, directions and speed modifiers
+      data.participants.forEach(participant => {
+        if (!participant) return;
+        const userId = typeof participant === 'object' ? participant.userId : participant;
+        if (!userId) return;
+        const displayName = typeof participant === 'object' ? participant.displayName : null;
+        const score = (data.scores && data.scores[userId]) || 0;
+
+        foodGameState.scores.set(userId, score);
+        foodGameState.directions.set(userId, (data.directions && data.directions[userId]) || 1);
+        foodGameState.speedModifiers.set(userId, (data.speedModifiers && data.speedModifiers[userId]) || 0);
+        if (displayName) {
+          foodGameState.displayNames.set(userId, displayName);
+        }
+
+        // Обновляем отображение счетчика
+        updateScoreDisplay(userId, score);
+      });
+    }
+
+    function updateFoodGameDirection(userId, direction) {
+      foodGameState.directions.set(userId, direction);
+      console.log(`Updated direction for user ${userId}: ${direction > 0 ? 'right' : 'left'}`);
+    }
+
+    function updateFoodGameSpeed(userId, speedModifier) {
+      foodGameState.speedModifiers.set(userId, speedModifier);
+      console.log(`Updated speed modifier for user ${userId}: ${speedModifier}`);
+    }
+
+    // Функция для обновления состояния аватара (normal/tired)
+    function updateAvatarState(userId, state) {
+      const avatar = document.getElementById(`avatar-${userId}`);
+      if (!avatar) return;
+      
+      console.log(`[overlay] Updating avatar ${userId} to state: ${state}`);
+      
+      // Используем существующую функцию setAvatarState для правильной анимации
+      if (state === 'tired') {
+        setAvatarState(avatar, 'tired');
+        console.log(`Avatar ${userId} is now tired`);
+      } else if (state === 'normal') {
+        setAvatarState(avatar, 'static'); // normal = static состояние
+        console.log(`Avatar ${userId} is now normal`);
+      }
+    }
+
+    // Duplicate removeAvatar function removed - using the correct one above
+
+    function spawnCarrot(data) {
+      const carrot = document.createElement('div');
+      carrot.className = 'carrot';
+      carrot.id = `carrot-${data.id}`;
+      carrot.style.position = 'absolute';
+      carrot.style.left = data.x + 'px';
+      carrot.style.top = data.y + 'px';
+      carrot.style.width = '40px';
+      carrot.style.height = '40px';
+      carrot.style.background = 'url(/parts/carrot.svg) no-repeat center';
+      carrot.style.backgroundSize = 'contain';
+      carrot.style.zIndex = '500';
+      carrot.dataset.speed = data.speed;
+      carrot.dataset.collected = 'false';
+
+      document.getElementById('foodGameArea').appendChild(carrot);
+      foodGameState.carrots.set(data.id, carrot);
+
+      // Start falling animation
+      const fallInterval = setInterval(() => {
+        // Stop if game is over
+        if (foodGameState.gameOver) {
+          clearInterval(fallInterval);
+          return;
+        }
+        
+        const currentTop = parseInt(carrot.style.top) || 0;
+        const speed = parseFloat(carrot.dataset.speed) || 2;
+        const newTop = currentTop + speed;
+        
+        carrot.style.top = newTop + 'px';
+        
+        // Check if carrot reached ground level (29px higher than avatars)
+        const groundLevel = window.innerHeight - 49; // 20px (avatar bottom) + 29px = 49px
+        if (newTop >= groundLevel && !carrot.dataset.grounded) {
+          carrot.dataset.grounded = 'true';
+          carrot.style.top = groundLevel + 'px';
+          carrot.classList.add('grounded');
+          
+          // Stay on ground for 3 seconds
+          setTimeout(() => {
+            if (carrot.dataset.collected !== 'true') {
+              carrot.remove();
+              foodGameState.carrots.delete(data.id);
+            }
+          }, 3000);
+          
+          clearInterval(fallInterval);
+        }
+        
+        // Remove if fallen off screen (before reaching ground)
+        if (newTop > window.innerHeight && !carrot.dataset.grounded) {
+          clearInterval(fallInterval);
+          carrot.remove();
+          foodGameState.carrots.delete(data.id);
+        }
+        
+        // Check for collisions - moved to startFoodGameMovement for better performance
+      }, 8); // ~120fps для более отзывчивой коллизии
+    }
+
+    function removeCarrot(carrotId) {
+      const carrot = foodGameState.carrots.get(carrotId);
+      if (carrot) {
+        carrot.remove();
+        foodGameState.carrots.delete(carrotId);
+      }
+    }
+
+    function checkCarrotCollisions() {
+      if (foodGameState.gameOver) return;
+      
+      // Disabled - collision detection moved to startFoodGameMovement for better performance
+      return;
+      
+      foodGameState.participants.forEach((avatarEl, userId) => {
+        const avatarRect = avatarEl.getBoundingClientRect();
+        
+        // Create collision box based on avatar size (160x240)
+        const avatar = {
+          x: avatarRect.left,
+          y: avatarRect.top,
+          width: 160,
+          height: 240
+        };
+        
+        foodGameState.carrots.forEach((carrot, carrotId) => {
+          if (carrot.dataset.collected === 'true') return;
+          
+          const carrotRect = carrot.getBoundingClientRect();
+          
+          // Create carrot collision box
+          const carrotBox = {
+            x: carrotRect.left,
+            y: carrotRect.top,
+            width: carrotRect.width,
+            height: carrotRect.height
+          };
+          
+          // Check collision using proper rectangle intersection
+          const collision = !(
+            avatar.x + avatar.width < carrotBox.x ||
+            avatar.x > carrotBox.x + carrotBox.width ||
+            avatar.y + avatar.height < carrotBox.y ||
+            avatar.y > carrotBox.y + carrotBox.height
+          );
+          
+          if (collision) {
+            // Collect carrot
+            carrot.dataset.collected = 'true';
+            carrot.style.opacity = '0';
+            carrot.style.transform = 'scale(1.5)';
+            carrot.classList.remove('grounded');
+            
+            // Update score
+            const currentScore = foodGameState.scores.get(userId) || 0;
+            const newScore = currentScore + 1;
+            foodGameState.scores.set(userId, newScore);
+            
+            // Update score display
+            updateScoreDisplay(userId, newScore);
+            
+            // Emit score update
+            fetch('/api/food-game/score-update', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId, score: newScore })
+            }).catch(err => console.error('Error updating score:', err));
+            
+            // Remove carrot after animation
+            setTimeout(() => {
+              carrot.remove();
+              foodGameState.carrots.delete(carrotId);
+            }, 200);
+            
+            console.log(`User ${userId} collected ${isGrounded ? 'grounded' : 'falling'} carrot! Score: ${newScore}`);
+            
+            // Check for winner - end game at 10 carrots
+            if (newScore >= 10) {
+              // Get winner name from avatar element
+              const winnerName = foodGameState.displayNames.get(userId) || (() => {
+                const winnerAvatar = foodGameState.participants.get(userId);
+                return winnerAvatar ? winnerAvatar.querySelector('.avatar')?.dataset.displayName || 'Unknown' : 'Unknown';
+              })();
+              
+              console.log(`Game finished! Winner: ${winnerName} (${userId}) with score: ${newScore}`);
+              
+              // End the game
+              endGame(userId, winnerName);
+            }
+          }
+        });
+      });
+    }
+
+    function updateFoodGameScore(userId, score) {
+      foodGameState.scores.set(userId, score);
+      updateScoreDisplay(userId, score);
+      console.log(`Updated score for user ${userId}: ${score}`);
+    }
+
+    function updateScoreDisplay(userId, score) {
+      const avatarEl = foodGameState.participants.get(userId);
+      if (!avatarEl) {
+        console.log(`No avatar found for user ${userId}`);
+        return;
+      }
+
+      let scoreCounter = document.getElementById(`score-${userId}`);
+      console.log(`updateScoreDisplay: Looking for score counter with ID score-${userId}`, scoreCounter);
+      if (!scoreCounter) {
+        // Создаем счетчик если его нет
+        scoreCounter = document.createElement('div');
+        scoreCounter.className = 'score-counter';
+        scoreCounter.id = `score-${userId}`;
+        scoreCounter.dataset.userId = userId;
+        scoreCounter.style.transformOrigin = 'center';
+        scoreCounter.style.pointerEvents = 'none';
+        avatarEl.appendChild(scoreCounter);
+      }
+
+      scoreCounter.textContent = score;
+      console.log(`updateScoreDisplay: Set score counter text to ${score} for user ${userId}`);
+      
+      // Визуальное обновление без анимации
+      scoreCounter.classList.add('updated');
+      setTimeout(() => {
+         scoreCounter.classList.remove('updated');
+      }, 500);
+
+    }
+
+
+    function finishFoodGame(data) {
+      foodGameState.isActive = false;
+      foodGameState.winner = data.winner;
+      
+      // Move winner to center and make static
+      const winnerAvatar = foodGameState.participants.get(data.winner);
+      if (winnerAvatar) {
+        winnerAvatar.style.left = '50%';
+        winnerAvatar.style.transform = 'translateX(-50%)';
+        
+        // Stop walking animation and make static
+        const avatar = winnerAvatar.querySelector('.avatar');
+        if (avatar) {
+          // Используем новую систему состояний
+          setAvatarState(avatar, 'static');
+        }
+      }
+      
+      // Show winner
+      const winnerEl = document.getElementById('foodGameWinner');
+      const winnerName = data.winnerName || `Пользователь ${data.winner}`;
+      winnerEl.textContent = `🏆 ${winnerName} ПОБЕДИЛ!`;
+      winnerEl.style.display = 'block';
+      
+      // Hide after 5 seconds
+      setTimeout(() => {
+        winnerEl.style.display = 'none';
+        document.getElementById('foodGameArea').style.display = 'none';
+        
+        // Remove food game avatars and clean up
+        foodGameState.participants.forEach((avatarEl, userId) => {
+          const avatar = avatarEl.querySelector('.avatar');
+          if (avatar) {
+            stopAvatarIntervals(avatar);
+          }
+          avatarEl.remove();
+          
+          // Remove score counter
+          const scoreCounter = document.getElementById(`score-${userId}`);
+          if (scoreCounter) {
+            scoreCounter.remove();
+          }
+        });
+        
+        // Remove all carrots
+        foodGameState.carrots.forEach(carrot => carrot.remove());
+        
+        // Clear food game state completely
+        foodGameState.participants.clear();
+        foodGameState.scores.clear();
+        foodGameState.directions.clear();
+        foodGameState.carrots.clear();
+        foodGameState.speedModifiers.clear();
+        foodGameState.winner = null;
+        foodGameState.isActive = false;
+      }, 5000);
+    }
+
+    function connect() {
+      // Get streamer ID from URL parameters
+      const urlParams = new URLSearchParams(window.location.search);
+      const streamerId = urlParams.get('streamer_id') || urlParams.get('streamer');
+      
+      if (!streamerId) {
+        console.error('[overlay] ERROR: streamer_id parameter is required');
+        document.body.innerHTML = '<div style="color: red; font-size: 24px; text-align: center; margin-top: 50px;">ERROR: streamer_id parameter is required</div>';
+        return;
+      }
+      
+      const eventUrl = `/overlay/events?streamer_id=${streamerId}`;
+      console.log(`[overlay] Connecting to: ${eventUrl}`);
+      console.log(`[overlay] Streamer ID: ${streamerId}`);
+      
+      const es = new EventSource(eventUrl);
+      
+      es.onopen = () => {
+        console.log(`[overlay] SSE connection opened to: ${eventUrl}`);
+      };
+      
+      es.onerror = (error) => {
+        console.error(`[overlay] SSE connection error:`, error);
+        console.log(`[overlay] Retrying connection in 3 seconds...`);
+        setTimeout(() => {
+          connect();
+        }, 3000);
+      };
+      es.addEventListener('spawn', async (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          const userAssets = await loadUserAvatar(data.userId);
+          createAvatar({ ...data, avatarData: userAssets }); 
+        } catch(_) {}
+      });
+      es.addEventListener('avatar:show', async (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          console.log('[overlay] avatar:show event received:', data);
+          const userAssets = await loadUserAvatar(data.twitchUserId);
+          createAvatar({ 
+            userId: data.twitchUserId,
+            displayName: data.displayName || 'Unknown',
+            color: data.color,
+            avatarData: userAssets,
+            ts: Date.now(),
+            source: data.source,
+            amount: data.amount,
+            message: data.message,
+            currency: data.currency
+          }); 
+        } catch(err) {
+          console.error('[overlay] Error handling avatar:show event:', err);
+        }
+      });
+      es.addEventListener('despawn', (e) => {
+        try { const data = JSON.parse(e.data); removeAvatar(data.userId); } catch(_) {}
+      });
+      es.addEventListener('move', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          console.log('[overlay] move event received:', data);
+          
+          // Use messageLength as primary source for distance calculation
+          let messageCount = data.messageCount;
+          
+          if (!messageCount && data.messageLength) {
+            // Use messageLength directly for distance calculation
+            // 1 character = 1 message unit
+            messageCount = Math.max(1, data.messageLength);
+            console.log('[overlay] Using messageLength as messageCount:', data.messageLength, '->', messageCount);
+          } else if (!messageCount && data.distance) {
+            // Fallback to distance but scale it down for reasonable movement
+            // 200px distance = 1 message, so scale accordingly
+            messageCount = Math.max(1, Math.round(Math.abs(data.distance) / 200));
+            console.log('[overlay] Using distance as messageCount:', data.distance, '->', messageCount);
+          }
+          
+          moveAvatar(data.userId, messageCount || 1); 
+        } catch(err) {
+          console.error('[overlay] Error handling move event:', err);
+        }
+      });
+      es.addEventListener('stopWalking', (e) => {
+        try { const data = JSON.parse(e.data); stopWalkingAnimation(data.userId); } catch(_) {}
+      });
+      es.addEventListener('emoji', (e) => {
+        try { const data = JSON.parse(e.data); showEmoji(data.userId, data.emoji); } catch(_) {}
+      });
+      es.addEventListener('sign', (e) => {
+        try { const data = JSON.parse(e.data); showEmoji(data.userId, data.emoji); } catch(_) {}
+      });
+      es.addEventListener('hi', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          console.log('[overlay] hi event received:', data);
+          showHi(data.userId); 
+        } catch(err) {
+          console.error('[overlay] Error parsing hi event:', err);
+        }
+      });
+      es.addEventListener('laugh', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          console.log('[overlay] laugh event received:', data);
+          showLaugh(data.userId); 
+        } catch(err) {
+          console.error('[overlay] Error parsing laugh event:', err);
+        }
+      });
+      es.addEventListener('gift', (e) => {
+        try { const data = JSON.parse(e.data); showGift(data.userId, data.giftData); } catch(_) {}
+      });
+      es.addEventListener('clearAvatarCache', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          // Clear user avatar cache
+          userAvatars.delete(data.userId);
+          console.log(`Cleared avatar cache for user: ${data.userId}`);
+        } catch(_) {}
+      });
+      es.addEventListener('avatarUpdate', async (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          console.log(`Avatar update event received for user: ${data.userId}`, data);
+          
+          // Clear user avatar cache to force reload
+          userAvatars.delete(data.userId);
+          console.log(`Cleared avatar cache for user: ${data.userId}`);
+          
+          // Check if avatar exists on overlay
+          const existingAvatar = active.get(data.userId);
+          console.log(`Existing avatar found:`, !!existingAvatar);
+          
+          if (existingAvatar) {
+            // Get current avatar position and state
+            const currentLeft = existingAvatar.style.left;
+            const currentClasses = existingAvatar.className;
+            const currentDisplayName = existingAvatar.dataset.displayName;
+            const currentColor = existingAvatar.dataset.color;
+            
+            // Load new avatar data
+            console.log(`Loading new avatar data for user: ${data.userId}`);
+            const newAvatarData = await loadUserAvatar(data.userId);
+            console.log(`New avatar data loaded:`, newAvatarData);
+            
+            // Create new avatar with updated data (createAvatar will remove the old one)
+            console.log(`Recreating avatar for user: ${data.userId}`);
+            createAvatar({ 
+              userId: data.userId, 
+              displayName: currentDisplayName, 
+              color: currentColor, 
+              avatarData: newAvatarData 
+            });
+            
+            // Restore position and state
+            const newAvatar = active.get(data.userId);
+            if (newAvatar) {
+              newAvatar.style.left = currentLeft;
+              newAvatar.className = currentClasses;
+              console.log(`Avatar recreated and restored for user: ${data.userId}`);
+            }
+          } else {
+            console.log(`No existing avatar found for user: ${data.userId}`);
+          }
+        } catch(err) {
+          console.error('Error updating avatar:', err);
+        }
+      });
+      es.addEventListener('raceStart', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          console.log('Race start event received:', data);
+          startRace(data);
+        } catch(err) {
+          console.error('Error parsing race start event:', err);
+        }
+      });
+      es.addEventListener('raceSpeedUpdate', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          updateRaceSpeed(data.participantId, data.speedModifier);
+        } catch(_) {}
+      });
+      es.addEventListener('raceFinish', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          finishRace(data.winner);
+        } catch(_) {}
+      });
+      
+      // Food Game Events
+      es.addEventListener('foodGameStart', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          console.log('Food game start event received:', data);
+          startFoodGame(data);
+        } catch(err) {
+          console.error('Error parsing food game start event:', err);
+        }
+      });
+      es.addEventListener('foodGameMonitoring', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          console.log('Food game monitoring event received:', data);
+          startFoodGameMonitoring(data);
+        } catch(err) {
+          console.error('Error parsing food game monitoring event:', err);
+        }
+      });
+      es.addEventListener('foodGameDirectionUpdate', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          updateFoodGameDirection(data.userId, data.direction);
+        } catch(_) {}
+      });
+      es.addEventListener('carrotSpawn', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          spawnCarrot(data);
+        } catch(_) {}
+      });
+      es.addEventListener('carrotRemove', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          removeCarrot(data.id);
+        } catch(_) {}
+      });
+      es.addEventListener('foodGameEnd', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          finishFoodGame(data);
+        } catch(_) {}
+      });
+      es.addEventListener('foodGameScoreUpdate', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          updateFoodGameScore(data.userId, data.score);
+        } catch(_) {}
+      });
+      es.addEventListener('foodGameSpeedUpdate', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          updateFoodGameSpeed(data.userId, data.speedModifier);
+        } catch(_) {}
+      });
+      
+      // Обработчик смены состояния аватара (normal/tired)
+      es.addEventListener('avatarStateChanged', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          updateAvatarState(data.userId, data.state);
+        } catch(_) {}
+      });
+      
+      // Обработчик удаления аватара
+      es.addEventListener('avatarRemoved', (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          removeAvatar(data.userId);
+        } catch(_) {}
+      });
+
+      // Обработчик обновления аватара в реальном времени
+      es.addEventListener('avatarUpdated', async (e) => {
+        try { 
+          const data = JSON.parse(e.data); 
+          console.log(`Avatar update received for user: ${data.userId}`, data.avatarData);
+          
+          // Update user avatar cache with new data
+          if (data.avatarData) {
+            // Extract IDs from the full names
+            const bodyId = data.avatarData.body_skin ? data.avatarData.body_skin.replace('body_skin_', '') : '1';
+            const faceId = data.avatarData.face_skin ? data.avatarData.face_skin.replace('face_skin_', '') : '1';
+            const clothesId = data.avatarData.clothes_type ? data.avatarData.clothes_type.replace('clothes_type_', '') : '1';
+            const othersId = data.avatarData.others_type ? data.avatarData.others_type.replace('others_', '') : '1';
+            
+            const userAssets = {
+              body: `/parts/body/${data.avatarData.body_skin || 'body_skin_1'}.png`,
+              face: `/parts/face/${data.avatarData.face_skin || 'face_skin_1'}.png`,
+              clothes: `/parts/clothes/${data.avatarData.clothes_type || 'clothes_type_1'}.png`,
+              others: `/parts/others/${data.avatarData.others_type || 'others_1'}.png`,
+              bodyId: bodyId,
+              faceId: faceId,
+              clothesId: clothesId,
+              othersId: othersId
+            };
+            
+            userAvatars.set(data.userId, userAssets);
+            console.log(`Updated avatar cache for user: ${data.userId}`);
+          }
+          
+          // If user has active avatar, update it immediately
+          if (active.has(data.userId)) {
+            console.log(`Updating active avatar appearance for user: ${data.userId}`);
+            const existingAvatar = active.get(data.userId);
+            const currentLeft = existingAvatar.style.left;
+            const currentClasses = existingAvatar.className;
+            const currentDisplayName = existingAvatar.dataset.displayName;
+            const currentColor = existingAvatar.dataset.color;
+            
+            // Create new avatar with updated data (createAvatar will remove the old one)
+            console.log(`Recreating avatar with new appearance for user: ${data.userId}`);
+            createAvatar({ 
+              userId: data.userId, 
+              displayName: currentDisplayName, 
+              color: currentColor, 
+              avatarData: userAvatars.get(data.userId) || await loadUserAvatar(data.userId)
+            });
+            
+            // Restore position and state
+            const newAvatar = active.get(data.userId);
+            if (newAvatar) {
+              newAvatar.style.left = currentLeft;
+              newAvatar.className = currentClasses;
+              console.log(`Avatar appearance updated and restored for user: ${data.userId}`);
+            }
+          } else {
+            console.log(`No active avatar found for user: ${data.userId}, cache updated for future spawns`);
+          }
+        } catch(err) {
+          console.error('[overlay] Error handling avatarUpdated event:', err);
+        }
+      });
+      
+      // Plane Race Events
+      es.addEventListener('racePlanStart', async (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          console.log('Plane race start event received:', data);
+          await startRacePlan(data);
+        } catch(err) {
+          console.error('Error parsing plane race start event:', err);
+        }
+      });
+      es.addEventListener('racePlanMonitoring', async (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          console.log('Plane race monitoring event received:', data);
+          await handlePlaneMonitoring(data);
+        } catch(err) {
+          console.error('Error parsing plane race monitoring event:', err);
+        }
+      });
+      es.addEventListener('racePlanLevelUpdate', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          setPlaneLane(data.userId, data.level);
+        } catch(_) {}
+      });
+      es.addEventListener('racePlanPositionUpdate', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          setPlanePosition(data.userId, data.position);
+        } catch(_) {}
+      });
+      es.addEventListener('obstacleSpawn', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          spawnPlaneObstacle(data);
+        } catch(_) {}
+      });
+      es.addEventListener('racePlanObstacleSpawn', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          spawnPlaneObstacle(data);
+        } catch(_) {}
+      });
+      es.addEventListener('obstacleRemove', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          removePlaneObstacle(data.id);
+        } catch(_) {}
+      });
+      es.addEventListener('racePlanObstacleBatch', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          updateObstacleTargets(data);
+        } catch(_) {}
+      });
+      es.addEventListener('racePlanState', async (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          console.log('=== RECEIVED racePlanState SSE event ===', data);
+          await handlePlaneRaceState(data);
+        } catch(err) {
+          console.error('Error parsing racePlanState event:', err);
+        }
+      });
+      es.addEventListener('racePlanCollision', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          handlePlaneCollision(data.playerId || data.userId, data.lives);
+        } catch(_) {}
+      });
+      es.addEventListener('racePlanEnd', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          console.log('Plane race end event received:', data);
+          handlePlaneRaceEnd(data);
+        } catch(_) {}
+      });
+      
+      es.onerror = () => { es.close(); setTimeout(connect, 2000); };
+    }
+
+    connect();
+  </script>
+</body>
+</html>
+
+
