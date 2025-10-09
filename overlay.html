@@ -222,21 +222,11 @@
       right: 0;
       bottom: 0;
       width: 100%;
-      height: var(--race-h, 340px);
-      background-image:
-        linear-gradient(180deg, rgba(30, 64, 175, 0.85), rgba(30, 64, 175, 0.45)),
-        repeating-linear-gradient(
-          to bottom,
-          rgba(148, 163, 184, 0.22) 0,
-          rgba(148, 163, 184, 0.22) 2px,
-          transparent 2px,
-          transparent calc(20% - 2px)
-        );
-      background-size: cover, 100% 100%;
+      height: var(--race-h, 357px);
+      background: linear-gradient(180deg, rgba(30, 64, 175, 0.85), rgba(30, 64, 175, 0.45));
       z-index: 1000;
       display: none;
       overflow: hidden;
-      box-shadow: 0 -12px 24px rgba(15, 23, 42, 0.65);
     }
 
     .race-plan-area.active {
@@ -249,7 +239,7 @@
       height: auto;
       pointer-events: none;
       will-change: transform, opacity;
-      transition: opacity 0.4s ease, transform 0.2s ease;
+      transition: opacity 0.2s ease, transform 0.1s ease;
       z-index: 1001;
     }
 
@@ -1809,7 +1799,7 @@
     const PLANE_MAX_LIVES = 3;
 
     function setRaceHeight() {
-      const h = Math.round(Math.max(260, Math.min(window.innerHeight * 0.35, 460)));
+      const h = Math.round(Math.max(273, Math.min(window.innerHeight * 0.368, 483)));
       document.documentElement.style.setProperty('--race-h', `${h}px`);
     }
 
@@ -2005,7 +1995,7 @@
       planeGame.players.forEach(player => {
         if (player.removing) return;
         player.currentX += (player.targetX - player.currentX) * Math.max(0.1, 0.18 * smoothing);
-        player.currentY += (player.targetY - player.currentY) * Math.max(0.1, 0.3 * smoothing);
+        player.currentY += (player.targetY - player.currentY) * Math.max(0.2, 0.6 * smoothing);
         positionPlanePlayer(player);
       });
 

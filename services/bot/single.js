@@ -537,36 +537,6 @@ async function ensureBotFor(uid) {
       checkRacePlanCheering(text, client, channel);
     }
 
-
-    // смена полосы
-    if (Game.isActive && !Game.gameFinished) {
-      logLine(`[bot] Lane change command "${text}" from user ${userId}, Game.isActive: ${Game.isActive}, Game.gameFinished: ${Game.gameFinished}`);
-      if (UP_WORDS.has(text)) {
-        let p = Game.players.get(userId);
-        if (!p) {
-          p = { lane: 2, x: 50, width: 72, lives: 3, out: false, prevX: 50 };
-          Game.players.set(userId, p);
-        }
-        const oldLane = p.lane ?? 2;
-        p.lane = clampLane(oldLane - 1);
-        emitLevelUpdate(userId, p.lane, client, channel); // ← ключевая строка
-        logLine(`[bot] Player ${userId} moved from lane ${oldLane} to lane ${p.lane} (up)`);
-        return;
-      }
-      if (DOWN_WORDS.has(text)) {
-        let p = Game.players.get(userId);
-        if (!p) {
-          p = { lane: 2, x: 50, width: 72, lives: 3, out: false, prevX: 50 };
-          Game.players.set(userId, p);
-        }
-        const oldLane = p.lane ?? 2;
-        p.lane = clampLane(oldLane + 1);
-        emitLevelUpdate(userId, p.lane, client, channel); // ← ключевая строка
-        logLine(`[bot] Player ${userId} moved from lane ${oldLane} to lane ${p.lane} (down)`);
-        return;
-      }
-    }
-
     // Если пользователь не активен в памяти — попробуем «лениво» восстановить
     if (!activeAvatars.has(userId)) {
       const avatarData = await getAvatarByTwitchId(userId);
