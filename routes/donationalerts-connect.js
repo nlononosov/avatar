@@ -1,3 +1,5 @@
+const db = require('../lib/db/async');
+
 function registerDonationAlertsConnectRoutes(app) {
   // Disconnect DonationAlerts account (OAuth-based)
   app.post('/api/donationalerts/disconnect', async (req, res) => {
@@ -7,9 +9,8 @@ function registerDonationAlertsConnectRoutes(app) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      const { upsertStreamerDA } = require('../db');
       // Устанавливаем статус need_reauth для стримера
-      upsertStreamerDA({
+      await db.upsertStreamerDA({
         streamer_twitch_id: uid,
         status: 'need_reauth',
         da_access_token: null,
@@ -36,8 +37,7 @@ function registerDonationAlertsConnectRoutes(app) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      const { getStreamerDA } = require('../db');
-      const streamerDA = getStreamerDA(uid);
+      const streamerDA = await db.getStreamerDA(uid);
       
       res.json({
         connected: !!(streamerDA && streamerDA.da_access_token && streamerDA.status === 'active'),

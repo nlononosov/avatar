@@ -1,16 +1,15 @@
-const { getUserByTwitchId, getAvatarByTwitchId } = require('../db');
+const { getUserByTwitchId, getAvatarByTwitchId } = require('../lib/db/async');
 
 function registerSuccessRoute(app) {
-  app.get('/success', (req, res) => {
+  app.get('/success', async (req, res) => {
     const uid = req.cookies.uid;
-    let profile = null;
-    if (uid) profile = getUserByTwitchId(String(uid));
+    const profile = uid ? await getUserByTwitchId(String(uid)) : null;
 
     const name = profile?.display_name || profile?.login || '';
     const avatar = profile?.profile_image_url || '';
     
     // Get user's avatar data
-    const avatarData = uid ? getAvatarByTwitchId(String(uid)) : null;
+    const avatarData = uid ? await getAvatarByTwitchId(String(uid)) : null;
     const login = profile?.login || '';
 
     res.status(200).send(`

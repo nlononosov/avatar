@@ -1,10 +1,10 @@
-const { getAvailableAvatarParts, updateAvatarPart, getAvatarByTwitchId } = require('../db');
+const { getAvailableAvatarParts, updateAvatarPart, getAvatarByTwitchId } = require('../lib/db/async');
 
 function registerAvatarCustomizeRoutes(app) {
   // Get available avatar parts
-  app.get('/api/avatar/parts', (req, res) => {
+  app.get('/api/avatar/parts', async (req, res) => {
     try {
-      const parts = getAvailableAvatarParts();
+      const parts = await getAvailableAvatarParts();
       res.json({
         success: true,
         data: parts
@@ -19,10 +19,10 @@ function registerAvatarCustomizeRoutes(app) {
   });
 
   // Get user avatar data
-  app.get('/api/avatar/:userId', (req, res) => {
+  app.get('/api/avatar/:userId', async (req, res) => {
     try {
       const { userId } = req.params;
-      const avatar = getAvatarByTwitchId(userId);
+      const avatar = await getAvatarByTwitchId(userId);
       
       if (!avatar) {
         return res.status(404).json({
@@ -74,7 +74,7 @@ function registerAvatarCustomizeRoutes(app) {
   });
 
   // Update avatar part
-  app.post('/api/avatar/update', (req, res) => {
+  app.post('/api/avatar/update', async (req, res) => {
     try {
       const { userId, partType, partId } = req.body;
       
@@ -93,7 +93,7 @@ function registerAvatarCustomizeRoutes(app) {
         });
       }
 
-      const success = updateAvatarPart(userId, partType, partId);
+      const success = await updateAvatarPart(userId, partType, partId);
       
       if (success) {
         // Clear avatar cache for this user
@@ -101,7 +101,7 @@ function registerAvatarCustomizeRoutes(app) {
         emit('clearAvatarCache', { userId });
         
         // Get updated avatar data
-        const updatedAvatar = getAvatarByTwitchId(userId);
+        const updatedAvatar = await getAvatarByTwitchId(userId);
         res.json({
           success: true,
           message: 'Avatar part updated successfully',
@@ -123,7 +123,7 @@ function registerAvatarCustomizeRoutes(app) {
   });
 
   // Update avatar on stream (for real-time updates)
-  app.post('/api/avatar/update-stream', (req, res) => {
+  app.post('/api/avatar/update-stream', async (req, res) => {
     try {
       const { userId, streamerId, body_skin, face_skin, clothes_type, others_type } = req.body;
       
@@ -135,7 +135,7 @@ function registerAvatarCustomizeRoutes(app) {
       }
 
       // Get updated avatar data
-      const updatedAvatar = getAvatarByTwitchId(userId);
+      const updatedAvatar = await getAvatarByTwitchId(userId);
       if (!updatedAvatar) {
         return res.status(404).json({
           success: false,

@@ -1,16 +1,16 @@
-const { getUserByTwitchId, getStreamerUsers, getUserAvatarPreview, getAvailableGifts, giveGiftToUser, getAvatarByTwitchId, setAvatarTimeoutSeconds, getAvatarTimeoutSeconds, setGameSettings, getGameSettings } = require('../db');
+const { getUserByTwitchId, getStreamerUsers, getUserAvatarPreview, getAvailableGifts, giveGiftToUser, getAvatarByTwitchId, setAvatarTimeoutSeconds, getAvatarTimeoutSeconds, setGameSettings, getGameSettings } = require('../lib/db/async');
 
 function registerMyChatRoute(app) {
   // API для получения списка пользователей стримера
-  app.get('/api/streamer/users', (req, res) => {
+  app.get('/api/streamer/users', async (req, res) => {
     const streamerId = req.cookies.uid;
     if (!streamerId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const searchQuery = req.query.search || '';
-    const users = getStreamerUsers(streamerId, searchQuery);
-    
+    const users = await getStreamerUsers(streamerId, searchQuery);
+
     res.json({
       success: true,
       data: users
@@ -18,14 +18,14 @@ function registerMyChatRoute(app) {
   });
 
   // API для получения предпросмотра аватара пользователя
-  app.get('/api/user/:userId/avatar-preview', (req, res) => {
+  app.get('/api/user/:userId/avatar-preview', async (req, res) => {
     const streamerId = req.cookies.uid;
     if (!streamerId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const { userId } = req.params;
-    const avatarData = getUserAvatarPreview(userId);
+    const avatarData = await getUserAvatarPreview(userId);
     
     if (!avatarData) {
       return res.status(404).json({ error: 'Avatar not found' });
@@ -39,14 +39,14 @@ function registerMyChatRoute(app) {
 
 
   // API для получения списка доступных подарков
-  app.get('/api/gifts', (req, res) => {
+  app.get('/api/gifts', async (req, res) => {
     const streamerId = req.cookies.uid;
     if (!streamerId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     try {
-      const gifts = getAvailableGifts();
+      const gifts = await getAvailableGifts();
       res.json({
         success: true,
         data: gifts
@@ -58,7 +58,7 @@ function registerMyChatRoute(app) {
   });
 
   // API для отправки подарка пользователю
-  app.post('/api/user/:userId/give-gift', (req, res) => {
+  app.post('/api/user/:userId/give-gift', async (req, res) => {
     const streamerId = req.cookies.uid;
     if (!streamerId) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -72,7 +72,7 @@ function registerMyChatRoute(app) {
     }
 
     try {
-      const success = giveGiftToUser(userId, giftType, giftId);
+      const success = await giveGiftToUser(userId, giftType, giftId);
       if (success) {
         res.json({
           success: true,
@@ -146,7 +146,7 @@ function registerMyChatRoute(app) {
 
     try {
       // Получаем информацию о стримере
-      const streamer = getUserByTwitchId(streamerId);
+      const streamer = await getUserByTwitchId(streamerId);
       if (!streamer) {
         return res.status(404).json({ error: 'Streamer not found' });
       }
@@ -206,7 +206,7 @@ function registerMyChatRoute(app) {
 
     try {
       // Получаем информацию о стримере
-      const streamer = getUserByTwitchId(streamerId);
+      const streamer = await getUserByTwitchId(streamerId);
       if (!streamer) {
         return res.status(404).json({ error: 'Streamer not found' });
       }
@@ -263,7 +263,7 @@ function registerMyChatRoute(app) {
 
     try {
       // Получаем информацию о стримере
-      const streamer = getUserByTwitchId(streamerId);
+      const streamer = await getUserByTwitchId(streamerId);
       if (!streamer) {
         return res.status(404).json({ error: 'Streamer not found' });
       }
@@ -370,7 +370,7 @@ function registerMyChatRoute(app) {
   });
 
   // API для сохранения настроек тайминга удаления аватаров
-  app.post('/api/streamer/avatar-timeout-settings', (req, res) => {
+  app.post('/api/streamer/avatar-timeout-settings', async (req, res) => {
     const streamerId = req.cookies.uid;
     if (!streamerId) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -384,7 +384,7 @@ function registerMyChatRoute(app) {
 
     try {
       // Сохраняем настройки в БД
-      setAvatarTimeoutSeconds(streamerId, avatarTimeoutSeconds);
+      await setAvatarTimeoutSeconds(streamerId, avatarTimeoutSeconds);
 
       // Обновляем настройки в боте
       const { setAvatarTimeoutSeconds: setBotTimeout } = require('../services/bot');
@@ -408,7 +408,7 @@ function registerMyChatRoute(app) {
   });
 
   // API для получения настроек тайминга удаления аватаров
-  app.get('/api/streamer/avatar-timeout-settings', (req, res) => {
+  app.get('/api/streamer/avatar-timeout-settings', async (req, res) => {
     const streamerId = req.cookies.uid;
     if (!streamerId) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -416,7 +416,7 @@ function registerMyChatRoute(app) {
 
     try {
       // Получаем текущие настройки из БД
-      const avatarTimeoutSeconds = getAvatarTimeoutSeconds(streamerId);
+      const avatarTimeoutSeconds = await getAvatarTimeoutSeconds(streamerId);
       
       res.json({ 
         success: true, 
@@ -434,7 +434,7 @@ function registerMyChatRoute(app) {
   });
 
   // API для сохранения настроек игр
-  app.post('/api/streamer/game-settings', (req, res) => {
+  app.post('/api/streamer/game-settings', async (req, res) => {
     const streamerId = req.cookies.uid;
     if (!streamerId) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -460,7 +460,7 @@ function registerMyChatRoute(app) {
 
     try {
       // Сохраняем настройки игр в БД
-      setGameSettings(streamerId, { minParticipants, maxParticipants, registrationTime });
+      await setGameSettings(streamerId, { minParticipants, maxParticipants, registrationTime });
       
       res.json({ 
         success: true, 
@@ -474,7 +474,7 @@ function registerMyChatRoute(app) {
   });
 
   // API для получения настроек игр
-  app.get('/api/streamer/game-settings', (req, res) => {
+  app.get('/api/streamer/game-settings', async (req, res) => {
     const streamerId = req.cookies.uid;
     if (!streamerId) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -482,7 +482,7 @@ function registerMyChatRoute(app) {
 
     try {
       // Получаем текущие настройки из БД
-      const gameSettings = getGameSettings(streamerId);
+      const gameSettings = await getGameSettings(streamerId);
       
       res.json({ 
         success: true, 
@@ -495,18 +495,18 @@ function registerMyChatRoute(app) {
   });
 
   // Страница "Мой чат"
-  app.get('/my-chat', (req, res) => {
+  app.get('/my-chat', async (req, res) => {
     const streamerId = req.cookies.uid;
     if (!streamerId) {
       return res.redirect('/');
     }
 
-    const streamer = getUserByTwitchId(streamerId);
+    const streamer = await getUserByTwitchId(streamerId);
     if (!streamer) {
       return res.redirect('/');
     }
 
-    const streamerAvatar = getAvatarByTwitchId(streamerId);
+    const streamerAvatar = await getAvatarByTwitchId(streamerId);
     const { displayName, login, profileImageUrl } = streamer;
     const avatarUrl = profileImageUrl || 'https://via.placeholder.com/64';
 

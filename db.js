@@ -1,22 +1,10 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const { GIFT_TYPES, GIFT_IDS } = require('./lib/constants/gifts');
 
 const dbPath = path.join(__dirname, 'data.sqlite');
 const db = new Database(dbPath, { fileMustExist: false });
-
-// Gift types and IDs
-const GIFT_TYPES = {
-  COMMON: 'common',
-  UNCOMMON: 'uncommon', 
-  RARE: 'rare'
-};
-
-const GIFT_IDS = {
-  [GIFT_TYPES.COMMON]: ['1'],
-  [GIFT_TYPES.UNCOMMON]: ['1'],
-  [GIFT_TYPES.RARE]: ['1']
-};
 
 // Надёжнее работать в WAL
 db.pragma('journal_mode = WAL');

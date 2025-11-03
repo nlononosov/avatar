@@ -2,7 +2,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { BASE_URL, CLIENT_ID, CLIENT_SECRET, SCOPES } = require('../lib/config');
 const { logLine } = require('../lib/logger');
-const { saveOrUpdateUser } = require('../db');
+const { saveOrUpdateUser } = require('../lib/db/async');
 
 function registerAuthRoutes(app) {
   app.get('/', (_req, res) => {
@@ -97,7 +97,7 @@ function registerAuthRoutes(app) {
       if (!user) return res.status(500).send(`<meta charset="utf-8"><pre>User payload empty</pre>`);
 
       const expiresAt = tokenData.expires_in ? Math.floor(Date.now() / 1000) + Number(tokenData.expires_in) : null;
-      saveOrUpdateUser({
+      await saveOrUpdateUser({
         twitch_user_id: String(user.id),
         display_name: user.display_name || user.login,
         login: user.login,

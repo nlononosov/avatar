@@ -1,5 +1,6 @@
 const { getAuthUrl, exchangeCodeForToken, getUserInfo } = require('../lib/donationalerts-oauth');
-const { saveOrUpdateUser, getUserByTwitchId, saveOrUpdateAvatar } = require('../db');
+const db = require('../lib/db/async');
+const { saveOrUpdateUser, getUserByTwitchId, saveOrUpdateAvatar } = db;
 
 // Store state for CSRF protection
 const stateStore = new Map();
@@ -85,7 +86,6 @@ function registerDonationAlertsAuthRoutes(app) {
       });
       
       // Сохраняем токены стримера в таблицу streamers
-      const { upsertStreamerDA } = require('../db');
       const streamerData = {
         streamer_twitch_id: storedState.userId || userInfo.id.toString(),
         twitch_login: username.toLowerCase(),
@@ -95,16 +95,15 @@ function registerDonationAlertsAuthRoutes(app) {
         da_expires_at: Math.floor(Date.now() / 1000) + expires_in - 60, // -60 сек для безопасности
         status: 'active'
       };
-      
-      upsertStreamerDA(streamerData);
+
+      await db.upsertStreamerDA(streamerData);
       console.log(`[DA OAuth] Saved streamer DA credentials for ${displayName}`);
       
       // Также обновляем пользователя в таблице users (если это существующий пользователь)
-      const existingUser = getUserByTwitchId(storedState.userId || userInfo.id.toString());
+      const existingUser = await getUserByTwitchId(storedState.userId || userInfo.id.toString());
       if (existingUser) {
         // Обновляем DA данные пользователя
-        const { setUserDA } = require('../db');
-        setUserDA(storedState.userId || userInfo.id.toString(), {
+        await db.setUserDA(storedState.userId || userInfo.id.toString(), {
           da_user_id: userInfo.id.toString(),
           da_username: username
         });
@@ -125,22 +124,22 @@ function registerDonationAlertsAuthRoutes(app) {
           da_username: username
         };
         
-        saveOrUpdateUser(userData);
+        await saveOrUpdateUser(userData);
         console.log(`[DA OAuth] Created new user ${userData.display_name}`);
       }
       
       // Create default avatar if doesn't exist
       const userId = storedState.userId || userInfo.id.toString();
-      let avatarData = require('../db').getAvatarByTwitchId(userId);
+      let avatarData = await db.getAvatarByTwitchId(userId);
       if (!avatarData) {
         try {
           avatarData = {
             body_skin: 'body_skin_1',
-            face_skin: 'face_skin_1', 
+            face_skin: 'face_skin_1',
             clothes_type: 'clothes_type_1',
             others_type: 'others_1'
           };
-          saveOrUpdateAvatar(userId, avatarData);
+          await saveOrUpdateAvatar(userId, avatarData);
           console.log(`[DA OAuth] Created default avatar for user ${userId}`);
         } catch (error) {
           console.error(`[DA OAuth] Error creating avatar: ${error.message}`);
@@ -182,7 +181,7 @@ function registerDonationAlertsAuthRoutes(app) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
       
-      const user = getUserByTwitchId(uid);
+      const user = await getUserByTwitchId(uid);
       if (!user || !user.access_token) {
         return res.status(401).json({ error: 'No DonationAlerts token' });
       }

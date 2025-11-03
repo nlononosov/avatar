@@ -1,16 +1,17 @@
-const { getUserByTwitchId, getAvatarByTwitchId, getUserGifts, getUserGiftStats, getAvailableGifts, updateAvatarPart, getUserCoins, addUserCoins, getLockedSkins, getUserPurchasedSkins, isSkinPurchased, purchaseSkin, purchaseSkinsBundle, getSkinPrice, getAllSkinsWithPrices, updateSkinPrice, bulkUpdateSkinPrices, getGiftInfo, refreshSkinsFromFilesystem, getAllUsers, grantSkinToUser, revokeSkinFromUser, grantSkinsToUser, revokeSkinsFromUser } = require('../db');
+const db = require('../lib/db/async');
+const { getUserByTwitchId, getAvatarByTwitchId, getUserGifts, getUserGiftStats, getAvailableGifts, updateAvatarPart, getUserCoins, addUserCoins, getLockedSkins, getUserPurchasedSkins, isSkinPurchased, purchaseSkin, purchaseSkinsBundle, getSkinPrice, getAllSkinsWithPrices, updateSkinPrice, bulkUpdateSkinPrices, getGiftInfo, refreshSkinsFromFilesystem, getAllUsers, grantSkinToUser, revokeSkinFromUser, grantSkinsToUser, revokeSkinsFromUser } = db;
 
 function registerMyAvatarRoute(app) {
 
   // API для получения монет пользователя
-  app.get('/api/user/coins', (req, res) => {
+  app.get('/api/user/coins', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     try {
-      const coins = getUserCoins(uid);
+      const coins = await getUserCoins(uid);
       res.json({
         success: true,
         data: { coins }
@@ -59,7 +60,7 @@ function registerMyAvatarRoute(app) {
   });
 
   // API для обработки успешного платежа (callback от ЮKassa)
-  app.post('/api/payment/success', (req, res) => {
+  app.post('/api/payment/success', async (req, res) => {
     const { userId, amount, paymentId } = req.body;
     
     if (!userId || !amount || !paymentId) {
@@ -74,7 +75,7 @@ function registerMyAvatarRoute(app) {
       }
 
       // Начисляем монеты
-      const newCoins = addUserCoins(userId, amount);
+      const newCoins = await addUserCoins(userId, amount);
       
       // Отмечаем платеж как обработанный
       markPaymentProcessed(paymentId);
@@ -94,7 +95,7 @@ function registerMyAvatarRoute(app) {
   });
 
   // API для пополнения баланса (оставляем для совместимости)
-  app.post('/api/user/add-coins', (req, res) => {
+  app.post('/api/user/add-coins', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -110,7 +111,7 @@ function registerMyAvatarRoute(app) {
     }
 
     try {
-      const newCoins = addUserCoins(uid, amount);
+      const newCoins = await addUserCoins(uid, amount);
       
       res.json({
         success: true,
@@ -127,7 +128,7 @@ function registerMyAvatarRoute(app) {
   });
 
   // API для покупки скина
-  app.post('/api/skin/purchase', (req, res) => {
+  app.post('/api/skin/purchase', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -139,12 +140,12 @@ function registerMyAvatarRoute(app) {
     }
 
     try {
-      const price = getSkinPrice(skinType, skinId);
+      const price = await getSkinPrice(skinType, skinId);
       if (price === 0) {
         return res.status(400).json({ error: 'Skin not found or not locked' });
       }
 
-      const result = purchaseSkin(uid, skinType, skinId, price);
+      const result = await purchaseSkin(uid, skinType, skinId, price);
       
       if (result.success) {
         res.json({
@@ -164,7 +165,7 @@ function registerMyAvatarRoute(app) {
   });
 
   // API для пакетной покупки частей скина
-  app.post('/api/skin/purchase-bundle', (req, res) => {
+  app.post('/api/skin/purchase-bundle', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -176,7 +177,7 @@ function registerMyAvatarRoute(app) {
     }
 
     try {
-      const result = purchaseSkinsBundle(uid, items);
+      const result = await purchaseSkinsBundle(uid, items);
       if (result.success) {
         res.json({ success: true, data: { newCoins: result.newCoins, purchasedCount: result.purchasedCount, totalPrice: result.totalPrice } });
       } else {
@@ -189,7 +190,7 @@ function registerMyAvatarRoute(app) {
   });
 
   // API для получения информации о подарках
-  app.get('/api/gifts/info', (req, res) => {
+  app.get('/api/gifts/info', async (req, res) => {
     try {
       const { giftType, giftId } = req.query;
       
@@ -197,7 +198,7 @@ function registerMyAvatarRoute(app) {
         return res.status(400).json({ error: 'Missing giftType or giftId' });
       }
 
-      const giftInfo = getGiftInfo(giftType, giftId);
+      const giftInfo = await getGiftInfo(giftType, giftId);
       res.json({
         success: true,
         data: giftInfo
@@ -209,15 +210,15 @@ function registerMyAvatarRoute(app) {
   });
 
   // API для получения информации о заблокированных скинах
-  app.get('/api/skins/locked', (req, res) => {
+  app.get('/api/skins/locked', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     try {
-      const lockedSkins = getLockedSkins();
-      const purchasedSkins = getUserPurchasedSkins(uid);
+      const lockedSkins = await getLockedSkins();
+      const purchasedSkins = await getUserPurchasedSkins(uid);
       const purchasedSet = new Set(purchasedSkins.map(s => `${s.skin_type}_${s.skin_id}`));
       
       const skinsWithStatus = lockedSkins.map(skin => ({
@@ -236,19 +237,19 @@ function registerMyAvatarRoute(app) {
   });
 
   // API для получения всех скинов с ценами (для админки)
-  app.get('/api/admin/skins', (req, res) => {
+  app.get('/api/admin/skins', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const user = getUserByTwitchId(uid);
+    const user = await getUserByTwitchId(uid);
     if (!user || user.login !== '1_tosik_1') {
       return res.status(403).json({ error: 'Access denied' });
     }
 
     try {
-      const allSkins = getAllSkinsWithPrices();
+      const allSkins = await getAllSkinsWithPrices();
       res.json({
         success: true,
         data: allSkins
@@ -260,13 +261,13 @@ function registerMyAvatarRoute(app) {
   });
 
   // API для обновления цены скина
-  app.post('/api/admin/skin/price', (req, res) => {
+  app.post('/api/admin/skin/price', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const user = getUserByTwitchId(uid);
+    const user = await getUserByTwitchId(uid);
     if (!user || user.login !== '1_tosik_1') {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -277,7 +278,7 @@ function registerMyAvatarRoute(app) {
     }
 
     try {
-      const result = updateSkinPrice(skinType, skinId, price, isLocked);
+      const result = await updateSkinPrice(skinType, skinId, price, isLocked);
       
       if (result.success) {
         res.json({
@@ -294,12 +295,13 @@ function registerMyAvatarRoute(app) {
   });
 
   // API: список пользователей (админ)
-  app.get('/api/admin/users', (req, res) => {
+  app.get('/api/admin/users', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) return res.status(401).json({ error: 'Unauthorized' });
-    const user = getUserByTwitchId(uid);
+    const user = await getUserByTwitchId(uid);
     if (!user || user.login !== '1_tosik_1') return res.status(403).json({ error: 'Access denied' });
-    const users = getAllUsers().map(u => ({
+    const usersRaw = await getAllUsers();
+    const users = usersRaw.map(u => ({
       twitch_user_id: u.twitch_user_id,
       display_name: u.display_name || u.login || u.twitch_user_id,
       login: u.login || '',
@@ -309,16 +311,16 @@ function registerMyAvatarRoute(app) {
   });
 
   // API: получить список скинов пользователя с пометкой куплено (админ)
-  app.get('/api/admin/user/:userId/skins', (req, res) => {
+  app.get('/api/admin/user/:userId/skins', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) return res.status(401).json({ error: 'Unauthorized' });
-    const user = getUserByTwitchId(uid);
+    const user = await getUserByTwitchId(uid);
     if (!user || user.login !== '1_tosik_1') return res.status(403).json({ error: 'Access denied' });
 
     const targetUserId = req.params.userId;
     try {
-      const allSkins = getAllSkinsWithPrices();
-      const purchased = getUserPurchasedSkins(targetUserId);
+      const allSkins = await getAllSkinsWithPrices();
+      const purchased = await getUserPurchasedSkins(targetUserId);
       const purchasedSet = new Set(purchased.map(s => `${s.skin_type}_${s.skin_id}`));
       const result = allSkins.map(s => ({
         ...s,
@@ -332,10 +334,10 @@ function registerMyAvatarRoute(app) {
   });
 
   // API: выставить доступ к скину (админ)
-  app.post('/api/admin/user/:userId/skins/set', (req, res) => {
+  app.post('/api/admin/user/:userId/skins/set', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) return res.status(401).json({ error: 'Unauthorized' });
-    const user = getUserByTwitchId(uid);
+    const user = await getUserByTwitchId(uid);
     if (!user || user.login !== '1_tosik_1') return res.status(403).json({ error: 'Access denied' });
 
     const targetUserId = req.params.userId;
@@ -345,8 +347,8 @@ function registerMyAvatarRoute(app) {
     }
     try {
       const result = purchased
-        ? grantSkinToUser(targetUserId, skinType, skinId)
-        : revokeSkinFromUser(targetUserId, skinType, skinId);
+        ? await grantSkinToUser(targetUserId, skinType, skinId)
+        : await revokeSkinFromUser(targetUserId, skinType, skinId);
       if (result.success) return res.json({ success: true });
       return res.status(400).json({ error: result.error || 'Failed to update' });
     } catch (e) {
@@ -356,10 +358,10 @@ function registerMyAvatarRoute(app) {
   });
 
   // API: массово выдать/отозвать полный скин (все части по номеру)
-  app.post('/api/admin/user/:userId/skins/bundle-set', (req, res) => {
+  app.post('/api/admin/user/:userId/skins/bundle-set', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) return res.status(401).json({ error: 'Unauthorized' });
-    const user = getUserByTwitchId(uid);
+    const user = await getUserByTwitchId(uid);
     if (!user || user.login !== '1_tosik_1') return res.status(403).json({ error: 'Access denied' });
 
     const targetUserId = req.params.userId;
@@ -378,12 +380,14 @@ function registerMyAvatarRoute(app) {
 
     try {
       let updated = 0;
-      parts.forEach(p => {
+      for (const part of parts) {
         const result = purchased
-          ? grantSkinToUser(targetUserId, p.skinType, p.skinId)
-          : revokeSkinFromUser(targetUserId, p.skinType, p.skinId);
-        if (result && result.success) updated++;
-      });
+          ? await grantSkinToUser(targetUserId, part.skinType, part.skinId)
+          : await revokeSkinFromUser(targetUserId, part.skinType, part.skinId);
+        if (result && result.success) {
+          updated++;
+        }
+      }
       return res.json({ success: true, updated });
     } catch (e) {
       console.error('Error setting bundle skins:', e);
@@ -392,10 +396,10 @@ function registerMyAvatarRoute(app) {
   });
 
   // API: пакетная выдача/отзыв набора частей (целый скин по номеру)
-  app.post('/api/admin/user/:userId/skins/set-bundle', (req, res) => {
+  app.post('/api/admin/user/:userId/skins/set-bundle', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) return res.status(401).json({ error: 'Unauthorized' });
-    const user = getUserByTwitchId(uid);
+    const user = await getUserByTwitchId(uid);
     if (!user || user.login !== '1_tosik_1') return res.status(403).json({ error: 'Access denied' });
 
     const targetUserId = req.params.userId;
@@ -404,7 +408,7 @@ function registerMyAvatarRoute(app) {
       return res.status(400).json({ error: 'Missing items or purchased' });
     }
     try {
-      const result = purchased ? grantSkinsToUser(targetUserId, items) : revokeSkinsFromUser(targetUserId, items);
+      const result = purchased ? await grantSkinsToUser(targetUserId, items) : await revokeSkinsFromUser(targetUserId, items);
       if (result.success) return res.json({ success: true, count: result.count });
       return res.status(400).json({ error: result.error || 'Failed to update bundle' });
     } catch (e) {
@@ -414,13 +418,13 @@ function registerMyAvatarRoute(app) {
   });
 
   // API для массового обновления цен
-  app.post('/api/admin/skins/bulk-update', (req, res) => {
+  app.post('/api/admin/skins/bulk-update', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const user = getUserByTwitchId(uid);
+    const user = await getUserByTwitchId(uid);
     if (!user || user.login !== '1_tosik_1') {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -431,7 +435,7 @@ function registerMyAvatarRoute(app) {
     }
 
     try {
-      const results = bulkUpdateSkinPrices(skins);
+      const results = await bulkUpdateSkinPrices(skins);
       res.json({
         success: true,
         data: results,
@@ -444,19 +448,19 @@ function registerMyAvatarRoute(app) {
   });
 
   // API для обновления скинов из файловой системы
-  app.post('/api/admin/skins/refresh', (req, res) => {
+  app.post('/api/admin/skins/refresh', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const user = getUserByTwitchId(uid);
+    const user = await getUserByTwitchId(uid);
     if (!user || user.login !== '1_tosik_1') {
       return res.status(403).json({ error: 'Access denied' });
     }
 
     try {
-      const result = refreshSkinsFromFilesystem();
+      const result = await refreshSkinsFromFilesystem();
       
       res.json({
         success: result.success,
@@ -472,13 +476,13 @@ function registerMyAvatarRoute(app) {
   });
 
   // Админ-страница для управления ценами скинов
-  app.get('/admin/skins', (req, res) => {
+  app.get('/admin/skins', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) {
       return res.redirect('/');
     }
 
-    const user = getUserByTwitchId(uid);
+    const user = await getUserByTwitchId(uid);
     if (!user) {
       return res.redirect('/');
     }
@@ -830,13 +834,13 @@ function registerMyAvatarRoute(app) {
   });
 
   // Админ-страница: доступ к скинам пользователей
-  app.get('/admin/users', (req, res) => {
+  app.get('/admin/users', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) {
       return res.redirect('/');
     }
 
-    const user = getUserByTwitchId(uid);
+    const user = await getUserByTwitchId(uid);
     if (!user) {
       return res.redirect('/');
     }
@@ -1139,58 +1143,57 @@ function registerMyAvatarRoute(app) {
     `);
   });
 
-  app.get('/my-avatar', (req, res) => {
+  app.get('/my-avatar', async (req, res) => {
     const uid = req.cookies.uid;
     if (!uid) {
       return res.redirect('/');
     }
 
-    const user = getUserByTwitchId(uid);
+    const user = await getUserByTwitchId(uid);
     if (!user) {
       return res.redirect('/');
     }
 
-    const avatar = getAvatarByTwitchId(uid);
-    const gifts = getUserGifts(uid);
-    const giftStats = getUserGiftStats(uid);
-    const availableGifts = getAvailableGifts();
+    const avatar = await getAvatarByTwitchId(uid);
+    const gifts = await getUserGifts(uid);
+    const giftStats = await getUserGiftStats(uid);
+    const availableGifts = await getAvailableGifts();
     
     console.log('Server: Raw gifts data:', gifts);
 
     // Добавляем названия подарков к данным
-    const giftsWithNames = gifts.map(gift => {
+    const giftsWithNames = await Promise.all(gifts.map(async (gift) => {
       // Извлекаем номер подарка из полного ID
       const giftId = gift.gift_id.replace(`gift_${gift.gift_type}_`, '');
-      const giftInfo = getGiftInfo(gift.gift_type, giftId);
-      console.log('Server: Creating gift with name:', { 
-        originalGiftId: gift.gift_id, 
-        giftType: gift.gift_type, 
-        extractedGiftId: giftId, 
-        giftName: giftInfo.name 
+      const giftInfo = await getGiftInfo(gift.gift_type, giftId);
+      console.log('Server: Creating gift with name:', {
+        originalGiftId: gift.gift_id,
+        giftType: gift.gift_type,
+        extractedGiftId: giftId,
+        giftName: giftInfo.name
       });
       return {
         ...gift,
         name: giftInfo.name,
         description: giftInfo.description
       };
-    });
+    }));
     
     console.log('Server: Gifts with names:', giftsWithNames);
     
     // Проверяем содержимое таблицы gifts
-    const { db } = require('../db');
-    const allGiftsFromDB = db.prepare('SELECT * FROM gifts').all();
-    console.log('Server: All gifts from DB:', allGiftsFromDB);
+    console.log('Server: All gifts from DB:', availableGifts);
 
     // Создаем объект с названиями всех подарков для клиентского кода
     const giftNames = {};
-    ['common', 'uncommon', 'rare'].forEach(giftType => {
+    const giftTypes = ['common', 'uncommon', 'rare'];
+    for (const giftType of giftTypes) {
       giftNames[giftType] = {};
       for (let i = 1; i <= 10; i++) { // Предполагаем максимум 10 подарков каждого типа
-        const giftInfo = getGiftInfo(giftType, i.toString());
-        giftNames[giftType][i.toString()] = giftInfo.name; // Используем строковые ключи
+        const giftInfo = await getGiftInfo(giftType, i.toString());
+        giftNames[giftType][i.toString()] = giftInfo?.name || '';
       }
-    });
+    }
 
     const { displayName, login, profileImageUrl } = user;
 
