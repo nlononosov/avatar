@@ -77,9 +77,86 @@ registerGameRoutes(app);
 initializeUsernameCache();
 
 // Start DonationAlerts polling
-const { startPolling } = require('./lib/donationalerts-poll');
+const { startPolling, stopPolling } = require('./lib/donationalerts-poll');
 startPolling();
 
-app.listen(PORT, () => {
+// Восстанавливаем ботов из Redis при старте (если Redis доступен)
+const { restoreBotsFromRedis } = require('./services/bot');
+const { getClient } = require('./lib/redis');
+const { stopHealthCheck } = require('./lib/redis');
+const dbAsync = require('./lib/db/async');
+
+// Проверяем Redis и восстанавливаем ботов асинхронно
+getClient()
+  .then((redis) => {
+    if (redis && redis.status === 'ready') {
+      console.log('[server] Redis is available, restoring bots from Redis state...');
+      restoreBotsFromRedis().catch((err) => {
+        console.error('[server] Failed to restore bots from Redis:', err.message);
+      });
+    } else {
+      console.warn('[server] Redis not available, skipping bot restoration');
+    }
+  })
+  .catch((err) => {
+    console.warn('[server] Redis check failed, skipping bot restoration:', err.message);
+  });
+
+const server = app.listen(PORT, () => {
   console.log(`Server listening on ${BASE_URL}`);
+  // PM2 ready signal
+  if (process.send) {
+    process.send('ready');
+  }
+});
+
+// Graceful shutdown
+async function gracefulShutdown(signal) {
+  console.log(`\n[server] ${signal} received, starting graceful shutdown...`);
+  
+  // Stop accepting new requests
+  server.close(() => {
+    console.log('[server] HTTP server closed');
+  });
+  
+  try {
+    // Stop DonationAlerts polling
+    stopPolling();
+    console.log('[server] DonationAlerts polling stopped');
+    
+    // Stop Redis health checks
+    stopHealthCheck();
+    console.log('[server] Redis health checks stopped');
+    
+    // Close DB worker
+    if (dbAsync && typeof dbAsync.terminate === 'function') {
+      await dbAsync.terminate();
+      console.log('[server] Database worker terminated');
+    }
+    
+    // Give time for cleanup (max 5 seconds)
+    setTimeout(() => {
+      console.log('[server] Graceful shutdown completed');
+      process.exit(0);
+    }, 5000);
+  } catch (error) {
+    console.error('[server] Error during graceful shutdown:', error);
+    process.exit(1);
+  }
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle unhandled rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[server] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('[server] Uncaught Exception:', error);
+  gracefulShutdown('uncaughtException').finally(() => {
+    process.exit(1);
+  });
 });

@@ -63,3 +63,19 @@ DA_POLL_LOCK_TTL_MS=4500       # TTL блокировок
 - Redis обеспечивает координацию между экземплярами
 - Redlock предотвращает дублирование обработки донатов
 - Состояние игр синхронизируется через Redis
+
+### Документация по масштабированию
+
+- **[SCALING_GUIDE.md](./SCALING_GUIDE.md)** - Подробное руководство по масштабированию для 20-50 стримеров
+- **[SCALING_CHECKLIST.md](./SCALING_CHECKLIST.md)** - Чеклист готовности к production с множеством стримеров
+- **[ecosystem.config.js](./ecosystem.config.js)** - Конфигурация PM2 для кластеризации
+
+### Запуск в production
+
+Для запуска с поддержкой 20-50 стримеров:
+
+1. Установите Redis и убедитесь что `REDIS_REQUIRED=true` в `.env`
+2. Установите PM2: `npm install -g pm2`
+3. Запустите через PM2: `pm2 start ecosystem.config.js`
+4. Проверьте метрики: `curl http://localhost:3000/metrics`
+5. Следуйте чеклисту из `SCALING_CHECKLIST.md`
