@@ -1,8 +1,9 @@
 const tmi = require('tmi.js');
 const { logLine } = require('../lib/logger');
-const { getUserByTwitchId, saveOrUpdateAvatar, getAvatarByTwitchId, saveOrUpdateUser, addUserToStreamer } = require('../db');
+const db = require('../lib/db/async');
 const { emit, emitToStreamer, getSubscriberCount, getStreamerSubscriberCount } = require('../lib/bus');
 const { CLIENT_ID, CLIENT_SECRET } = require('../lib/config');
+const { stateManager } = require('../lib/state-redis');
 
 // ==================== MULTI-BOT MANAGER ====================
 // Хранилище всех активных ботов по streamer_id
@@ -22,6 +23,10 @@ function getStreamerState(streamerId) {
       avatarStates: new Map(),
       avatarTimeoutInterval: null,
       avatarTimeoutSeconds: 300,
+      __hydrated: false,
+      __hydrating: null,
+      __flushTimer: null,
+      __persistInterval: null,
       raceState: {
         isActive: false,
         participants: new Set(),
@@ -79,6 +84,228 @@ function getStreamerState(streamerId) {
 }
 // ==================== END MULTI-BOT MANAGER ====================
 
+function serializeSet(set) {
+  return Array.from(set || []);
+}
+
+function serializeMap(map) {
+  return Array.from((map || new Map()).entries());
+}
+
+function deserializeSet(values) {
+  return new Set(Array.isArray(values) ? values : []);
+}
+
+function deserializeMap(entries) {
+  const map = new Map();
+  if (Array.isArray(entries)) {
+    for (const [key, value] of entries) {
+      map.set(key, value);
+    }
+  }
+  return map;
+}
+
+function serializeRaceState(state) {
+  if (!state) return null;
+  return {
+    ...state,
+    participants: serializeSet(state.participants),
+    participantNames: serializeMap(state.participantNames),
+    positions: serializeMap(state.positions),
+    speeds: serializeMap(state.speeds),
+    modifiers: serializeMap(state.modifiers),
+    speedModifiers: serializeMap(state.speedModifiers)
+  };
+}
+
+function applyRaceState(target, data) {
+  if (!data || !target) return target;
+  target.isActive = Boolean(data.isActive);
+  target.participants = deserializeSet(data.participants);
+  target.participantNames = deserializeMap(data.participantNames);
+  target.positions = deserializeMap(data.positions);
+  target.speeds = deserializeMap(data.speeds);
+  target.modifiers = deserializeMap(data.modifiers);
+  target.speedModifiers = deserializeMap(data.speedModifiers);
+  target.maxParticipants = data.maxParticipants ?? target.maxParticipants;
+  target.minParticipants = data.minParticipants ?? target.minParticipants;
+  target.countdown = data.countdown ?? 0;
+  target.raceStarted = Boolean(data.raceStarted);
+  target.raceFinished = Boolean(data.raceFinished);
+  target.winner = data.winner ?? null;
+  target.startTime = data.startTime ?? null;
+  return target;
+}
+
+function serializeFoodGameState(state) {
+  if (!state) return null;
+  return {
+    ...state,
+    participants: serializeSet(state.participants),
+    participantNames: serializeMap(state.participantNames),
+    scores: serializeMap(state.scores),
+    directions: serializeMap(state.directions),
+    speedModifiers: serializeMap(state.speedModifiers)
+  };
+}
+
+function applyFoodGameState(target, data) {
+  if (!data || !target) return target;
+  target.isActive = Boolean(data.isActive);
+  target.participants = deserializeSet(data.participants);
+  target.participantNames = deserializeMap(data.participantNames);
+  target.scores = deserializeMap(data.scores);
+  target.directions = deserializeMap(data.directions);
+  target.speedModifiers = deserializeMap(data.speedModifiers);
+  target.carrots = Array.isArray(data.carrots) ? data.carrots : [];
+  target.gameStarted = Boolean(data.gameStarted);
+  target.gameFinished = Boolean(data.gameFinished);
+  target.startTime = data.startTime ?? null;
+  target.winner = data.winner ?? null;
+  return target;
+}
+
+function serializeRacePlanState(state) {
+  if (!state) return null;
+  return {
+    ...state,
+    participants: serializeSet(state.participants),
+    participantNames: serializeMap(state.participantNames),
+    positions: serializeMap(state.positions),
+    levels: serializeMap(state.levels),
+    lives: serializeMap(state.lives)
+  };
+}
+
+function applyRacePlanState(target, data) {
+  if (!data || !target) return target;
+  target.isActive = Boolean(data.isActive);
+  target.participants = deserializeSet(data.participants);
+  target.participantNames = deserializeMap(data.participantNames);
+  target.positions = deserializeMap(data.positions);
+  target.levels = deserializeMap(data.levels);
+  target.lives = deserializeMap(data.lives);
+  target.obstacles = Array.isArray(data.obstacles) ? data.obstacles : [];
+  target.gameStarted = Boolean(data.gameStarted);
+  target.gameFinished = Boolean(data.gameFinished);
+  target.startTime = data.startTime ?? null;
+  target.winner = data.winner ?? null;
+  target.maxParticipants = data.maxParticipants ?? target.maxParticipants;
+  target.trackWidth = data.trackWidth ?? target.trackWidth;
+  return target;
+}
+
+function serializeGameState(game) {
+  if (!game) return null;
+  return {
+    ...game,
+    players: serializeMap(game.players),
+    obstacles: Array.isArray(game.obstacles) ? game.obstacles : []
+  };
+}
+
+function applyGameState(target, data) {
+  if (!data || !target) return target;
+  target.isActive = Boolean(data.isActive);
+  target.gameFinished = Boolean(data.gameFinished);
+  target.players = deserializeMap(data.players);
+  target.obstacles = Array.isArray(data.obstacles) ? data.obstacles : [];
+  target.lanes = Array.isArray(data.lanes) ? data.lanes : target.lanes;
+  target.maxLives = data.maxLives ?? target.maxLives;
+  return target;
+}
+
+function serializeStreamerState(state) {
+  return {
+    avatarTimeoutSeconds: state.avatarTimeoutSeconds,
+    activeAvatars: serializeSet(state.activeAvatars),
+    avatarLastActivity: serializeMap(state.avatarLastActivity),
+    avatarStates: serializeMap(state.avatarStates),
+    raceState: serializeRaceState(state.raceState),
+    foodGameState: serializeFoodGameState(state.foodGameState),
+    racePlanState: serializeRacePlanState(state.racePlanState),
+    gameState: serializeGameState(state.Game)
+  };
+}
+
+async function persistStreamerState(streamerId) {
+  try {
+    const state = getStreamerState(streamerId);
+    await stateManager.setBotState(streamerId, serializeStreamerState(state));
+  } catch (error) {
+    logLine(`[bot] Failed to persist state for streamer ${streamerId}: ${error.message}`);
+  }
+}
+
+function scheduleStateFlush(streamerId) {
+  const state = getStreamerState(streamerId);
+  if (state.__flushTimer) {
+    return;
+  }
+
+  state.__flushTimer = setTimeout(() => {
+    state.__flushTimer = null;
+    persistStreamerState(streamerId);
+  }, 500);
+}
+
+async function hydrateStateFromStorage(streamerId) {
+  const state = getStreamerState(streamerId);
+  if (state.__hydrated) {
+    return state;
+  }
+
+  if (state.__hydrating) {
+    await state.__hydrating;
+    return state;
+  }
+
+  state.__hydrating = (async () => {
+    try {
+      const storedState = await stateManager.getBotState(streamerId);
+      if (!storedState) {
+        return;
+      }
+
+      if (typeof storedState.avatarTimeoutSeconds === 'number') {
+        state.avatarTimeoutSeconds = storedState.avatarTimeoutSeconds;
+      }
+
+      state.activeAvatars = deserializeSet(storedState.activeAvatars);
+      state.avatarLastActivity = deserializeMap(storedState.avatarLastActivity);
+      state.avatarStates = deserializeMap(storedState.avatarStates);
+
+      if (storedState.raceState) {
+        applyRaceState(state.raceState, storedState.raceState);
+      }
+
+      if (storedState.foodGameState) {
+        applyFoodGameState(state.foodGameState, storedState.foodGameState);
+      }
+
+      if (storedState.racePlanState) {
+        applyRacePlanState(state.racePlanState, storedState.racePlanState);
+      }
+
+      if (storedState.gameState) {
+        applyGameState(state.Game, storedState.gameState);
+      }
+    } catch (error) {
+      logLine(`[bot] Failed to hydrate state for streamer ${streamerId}: ${error.message}`);
+    }
+  })();
+
+  try {
+    await state.__hydrating;
+  } finally {
+    state.__hydrating = null;
+    state.__hydrated = true;
+  }
+
+  return state;
+}
+
 // Помощник для отправки событий в канал стримера
 function emitOverlay(event, payload, channel, streamerId) {
   if (streamerId) {
@@ -94,12 +321,13 @@ function setAvatarTimeoutSeconds(streamerId, seconds) {
   const oldTimeout = state.avatarTimeoutSeconds;
   state.avatarTimeoutSeconds = seconds;
   logLine(`[bot] Avatar timeout updated from ${oldTimeout}s to ${seconds}s for streamer ${streamerId}`);
-  
+
   // Перезапускаем интервал с новым таймингом
   if (state.avatarTimeoutInterval) {
     clearInterval(state.avatarTimeoutInterval);
   }
   startAvatarTimeoutChecker(streamerId);
+  scheduleStateFlush(streamerId);
 }
 
 // Функция для запуска проверки неактивных аватаров
@@ -111,24 +339,29 @@ function startAvatarTimeoutChecker(streamerId) {
   
   // Проверяем чаще: раз в секунду, либо динамически от таймаута
   const period = Math.max(1000, Math.min(10000, Math.floor(state.avatarTimeoutSeconds * 1000 / 4)));
-  state.avatarTimeoutInterval = setInterval(() => checkInactiveAvatars(streamerId), period);
-  
+  state.avatarTimeoutInterval = setInterval(() => {
+    checkInactiveAvatars(streamerId).catch((error) => {
+      logLine(`[bot] Avatar timeout checker error for ${streamerId}: ${error.message}`);
+    });
+  }, period);
+
   // Мгновенно проверить один раз при старте
-  checkInactiveAvatars(streamerId);
+  checkInactiveAvatars(streamerId).catch((error) => {
+    logLine(`[bot] Initial avatar timeout check failed for ${streamerId}: ${error.message}`);
+  });
   
   logLine(`[bot] Started avatar timeout checker (timeout=${state.avatarTimeoutSeconds}s, period=${period}ms) for streamer ${streamerId}`);
 }
 
 // Функция для проверки и удаления неактивных аватаров
-function checkInactiveAvatars(streamerId) {
+async function checkInactiveAvatars(streamerId) {
   const state = getStreamerState(streamerId);
   const now = Date.now();
-  
+
   // Загружаем актуальные настройки из БД для текущего стримера
   let currentTimeoutSeconds = state.avatarTimeoutSeconds;
   try {
-    const { getAvatarTimeoutSeconds } = require('../db');
-    const dbTimeout = getAvatarTimeoutSeconds(streamerId);
+    const dbTimeout = await db.getAvatarTimeoutSeconds(streamerId);
     if (dbTimeout) {
       currentTimeoutSeconds = dbTimeout;
       if (dbTimeout !== state.avatarTimeoutSeconds) {
@@ -165,6 +398,7 @@ function checkInactiveAvatars(streamerId) {
       state.avatarStates.set(userId, 'tired');
       emitOverlay('avatarStateChanged', { userId, state: 'tired' }, null, streamerId);
     }
+    scheduleStateFlush(streamerId);
   }
   
   if (inactiveUsers.length > 0) {
@@ -174,22 +408,25 @@ function checkInactiveAvatars(streamerId) {
       state.avatarStates.delete(userId);
       emitOverlay('avatarRemoved', { userId }, null, streamerId);
     }
+    scheduleStateFlush(streamerId);
   }
 }
 
 // Функция для обновления активности аватара
-function updateAvatarActivity(streamerId, userId) {
+async function updateAvatarActivity(streamerId, userId) {
   const state = getStreamerState(streamerId);
   const previousState = state.avatarStates.get(userId);
   state.avatarLastActivity.set(userId, Date.now());
   state.activeAvatars.add(userId);
-  
+
   if (previousState === 'tired') {
     state.avatarStates.set(userId, 'normal');
     emitOverlay('avatarStateChanged', { userId, state: 'normal' }, null, streamerId);
   } else if (!previousState) {
     state.avatarStates.set(userId, 'normal');
   }
+
+  scheduleStateFlush(streamerId);
 }
 
 // Функция для получения текущего тайминга
@@ -226,7 +463,7 @@ async function refreshToken(profile) {
     const expiresAt = tokenData.expires_in ? Math.floor(Date.now() / 1000) + Number(tokenData.expires_in) : null;
 
     // Update user with new tokens
-    saveOrUpdateUser({
+    await db.saveOrUpdateUser({
       twitch_user_id: profile.twitch_user_id,
       display_name: profile.display_name,
       login: profile.login,
@@ -257,7 +494,7 @@ async function ensureBotFor(uid) {
     return { profile: botData.profile, client: botData.client };
   }
 
-  let profile = getUserByTwitchId(uid);
+  let profile = await db.getUserByTwitchId(uid);
   if (!profile) throw new Error('User not found in DB');
 
   // Check if token is expired and refresh if needed
@@ -278,6 +515,7 @@ async function ensureBotFor(uid) {
   });
 
   const states = getStreamerState(uid);
+  await hydrateStateFromStorage(uid);
   let avatarShowHandler = null;
   let connectionResolver = null;
   let connectionRejector = null;
@@ -289,47 +527,72 @@ async function ensureBotFor(uid) {
   });
   
   client.on('connected', (addr, port) => {
-    logLine(`[bot] connected to ${addr}:${port} → #${profile.login} for streamer ${uid}`);
-    botClients.set(uid, { client, profile, ready: true, ...states });
-    
-    // Загружаем настройки тайминга из БД
-    try {
-      const { getAvatarTimeoutSeconds } = require('../db');
-      const dbTimeout = getAvatarTimeoutSeconds(uid);
-      if (dbTimeout && dbTimeout !== states.avatarTimeoutSeconds) {
-        states.avatarTimeoutSeconds = dbTimeout;
-        logLine(`[bot] Loaded avatar timeout from DB: ${dbTimeout} seconds`);
+    (async () => {
+      logLine(`[bot] connected to ${addr}:${port} → #${profile.login} for streamer ${uid}`);
+      states.client = client;
+      states.profile = profile;
+      states.ready = true;
+      botClients.set(uid, states);
+
+      try {
+        const dbTimeout = await db.getAvatarTimeoutSeconds(uid);
+        if (dbTimeout && dbTimeout !== states.avatarTimeoutSeconds) {
+          states.avatarTimeoutSeconds = dbTimeout;
+          logLine(`[bot] Loaded avatar timeout from DB: ${dbTimeout} seconds`);
+        }
+      } catch (error) {
+        logLine(`[bot] Error loading timeout from DB: ${error.message}`);
       }
-    } catch (error) {
-      logLine(`[bot] Error loading timeout from DB: ${error.message}`);
-    }
-    
-    startAvatarTimeoutChecker(uid);
-    
-    // Подписываемся на события bus для отслеживания аватаров из донатов
-    const { on } = require('../lib/bus');
-    avatarShowHandler = (data) => {
-      if (data.streamerId === uid && data.twitchUserId) {
-        logLine(`[bot] Avatar shown via donation for user ${data.twitchUserId}`);
-        updateAvatarActivity(uid, data.twitchUserId);
+
+      startAvatarTimeoutChecker(uid);
+
+      if (!states.__persistInterval) {
+        states.__persistInterval = setInterval(() => {
+          persistStreamerState(uid).catch((error) => {
+            logLine(`[bot] Failed to persist state for streamer ${uid}: ${error.message}`);
+          });
+        }, 2000);
       }
-    };
-    on('avatar:show', avatarShowHandler);
-    
-    // Разрешаем промис подключения
-    if (connectionResolver) {
-      connectionResolver({ profile, client });
-    }
+
+      await stateManager.registerStreamer(uid);
+      scheduleStateFlush(uid);
+
+      // Подписываемся на события bus для отслеживания аватаров из донатов
+      const { on } = require('../lib/bus');
+      avatarShowHandler = async (data) => {
+        if (data.streamerId === uid && data.twitchUserId) {
+          logLine(`[bot] Avatar shown via donation for user ${data.twitchUserId}`);
+          try {
+            await updateAvatarActivity(uid, data.twitchUserId);
+          } catch (error) {
+            logLine(`[bot] Failed to update avatar activity from donation for ${data.twitchUserId}: ${error.message}`);
+          }
+        }
+      };
+      on('avatar:show', avatarShowHandler);
+
+      // Разрешаем промис подключения
+      if (connectionResolver) {
+        connectionResolver({ profile, client });
+      }
+    })().catch((error) => {
+      logLine(`[bot] connected handler error for streamer ${uid}: ${error.message}`);
+      if (connectionRejector) {
+        connectionRejector(error);
+      }
+    });
   });
   client.on('disconnected', (reason) => {
     logLine(`[bot] disconnected for streamer ${uid}: ${reason}`);
-    if (botClients.has(uid)) {
-      botClients.get(uid).ready = false;
+    const botData = botClients.get(uid);
+    if (botData) {
+      botData.ready = false;
     }
     // Отписываемся от событий
     if (avatarShowHandler) {
       const { off } = require('../lib/bus');
       off('avatar:show', avatarShowHandler);
+      avatarShowHandler = null;
     }
   });
   client.on('notice', (channel, msgid, message) => {
@@ -341,22 +604,22 @@ async function ensureBotFor(uid) {
       }
     }
   });
-  client.on('message', (channel, tags, message, self) => {
+  client.on('message', async (channel, tags, message, self) => {
     if (self) return;
-    
+
     const botData = botClients.get(uid);
     if (!botData || !botData.ready) {
       return;
     }
-    
-    const text = message.trim().toLowerCase();
-    const userId = tags['user-id'];
-    const displayName = tags['display-name'] || tags.username;
-    const color = tags['color'] || null;
-    const isStreamer = tags['badges'] && (tags['badges'].broadcaster || tags['badges'].moderator);
-    
-    // Обновляем активность аватара при любом сообщении
-    updateAvatarActivity(uid, userId);
+
+    try {
+      const text = message.trim().toLowerCase();
+      const userId = tags['user-id'];
+      const displayName = tags['display-name'] || tags.username;
+      const color = tags['color'] || null;
+
+      // Обновляем активность аватара при любом сообщении
+      await updateAvatarActivity(uid, userId);
     
     if (text === '!ping') {
       client.say(channel, 'pong').catch(err => logLine(`[bot] say error: ${err.message}`));
@@ -365,7 +628,7 @@ async function ensureBotFor(uid) {
 
     if (text === '!start') {
       // Ensure user exists in database first
-      let user = getUserByTwitchId(userId);
+      let user = await db.getUserByTwitchId(userId);
       if (!user) {
         const userData = {
           twitch_user_id: userId,
@@ -377,37 +640,37 @@ async function ensureBotFor(uid) {
           scope: null,
           expires_at: null
         };
-        saveOrUpdateUser(userData);
+        await db.saveOrUpdateUser(userData);
       }
-      
+
       // Load or create default avatar
-      let avatarData = getAvatarByTwitchId(userId);
+      let avatarData = await db.getAvatarByTwitchId(userId);
       if (!avatarData) {
         try {
           avatarData = {
             body_skin: 'body_skin_1',
-            face_skin: 'face_skin_1', 
+            face_skin: 'face_skin_1',
             clothes_type: 'clothes_type_1',
             others_type: 'others_1'
           };
-          saveOrUpdateAvatar(userId, avatarData);
+          await db.saveOrUpdateAvatar(userId, avatarData);
         } catch (error) {
           avatarData = {
             body_skin: 'body_skin_1',
-            face_skin: 'face_skin_1', 
+            face_skin: 'face_skin_1',
             clothes_type: 'clothes_type_1',
             others_type: 'others_1'
           };
         }
       }
-      
+
       // Add user to streamer's chat list
       try {
-        addUserToStreamer(userId, uid);
+        await db.addUserToStreamer(userId, uid);
       } catch (error) {
         logLine(`[bot] Error adding user to streamer: ${error.message}`);
       }
-      
+
       // Emit avatar:show event
       emitToStreamer(uid, 'avatar:show', {
         streamerId: uid,
@@ -417,8 +680,9 @@ async function ensureBotFor(uid) {
         avatarData,
         source: 'twitch_chat'
       });
-      
+
       states.activeAvatars.add(userId);
+      scheduleStateFlush(uid);
       logLine(`[overlay] spawn requested by ${displayName} (${userId}) for streamer ${uid}`);
       return;
     }
@@ -509,9 +773,10 @@ async function ensureBotFor(uid) {
 
     // Если пользователь не активен в памяти — попробуем «лениво» восстановить
     if (!states.activeAvatars.has(userId)) {
-      const avatarData = getAvatarByTwitchId(userId);
+      const avatarData = await db.getAvatarByTwitchId(userId);
       if (avatarData) {
         states.activeAvatars.add(userId);
+        scheduleStateFlush(uid);
         emitOverlay('spawn', {
           userId,
           displayName,
@@ -630,6 +895,9 @@ async function ensureBotFor(uid) {
       distance: moveDistance * direction,
       messageLength
     }, channel, uid);
+  } catch (error) {
+    logLine(`[bot] message handler error for streamer ${uid}: ${error.message}`);
+  }
   });
 
   try {
@@ -670,7 +938,7 @@ async function stopBot(streamerId) {
 
 async function stopBotForStreamer(streamerId) {
   if (!botClients.has(streamerId)) return false;
-  
+
   const botData = botClients.get(streamerId);
   if (botData.client) {
     try {
@@ -679,14 +947,56 @@ async function stopBotForStreamer(streamerId) {
       logLine(`[bot] error disconnecting bot for streamer ${streamerId}: ${error.message}`);
     }
   }
-  
+
   if (botData.avatarTimeoutInterval) {
     clearInterval(botData.avatarTimeoutInterval);
   }
-  
+
+  if (botData.__persistInterval) {
+    clearInterval(botData.__persistInterval);
+    botData.__persistInterval = null;
+  }
+
+  if (botData.__flushTimer) {
+    clearTimeout(botData.__flushTimer);
+    botData.__flushTimer = null;
+  }
+
+  try {
+    await stateManager.unregisterStreamer(streamerId);
+    await stateManager.deleteBotState(streamerId);
+  } catch (error) {
+    logLine(`[bot] error cleaning Redis state for streamer ${streamerId}: ${error.message}`);
+  }
+
   botClients.delete(streamerId);
   logLine(`[bot] stopped for streamer ${streamerId}`);
   return true;
+}
+
+async function restoreBotsFromRedis() {
+  try {
+    const streamerIds = await stateManager.listStreamers();
+    if (!Array.isArray(streamerIds) || streamerIds.length === 0) {
+      logLine('[bot] No streamer sessions found in Redis for restoration');
+      return [];
+    }
+
+    const restored = [];
+    for (const streamerId of streamerIds) {
+      try {
+        await ensureBotFor(streamerId);
+        restored.push(streamerId);
+      } catch (error) {
+        logLine(`[bot] Failed to restore bot for streamer ${streamerId}: ${error.message}`);
+      }
+    }
+
+    return restored;
+  } catch (error) {
+    logLine(`[bot] restoreBotsFromRedis error: ${error.message}`);
+    return [];
+  }
 }
 
 function status() {
@@ -706,6 +1016,7 @@ function addActiveAvatar(streamerId, userId) {
   const state = getStreamerState(streamerId);
   state.activeAvatars.add(userId);
   logLine(`[bot] Added avatar ${userId} to active list for streamer ${streamerId}`);
+  scheduleStateFlush(streamerId);
 }
 
 // Функция для удаления аватара из активного списка
@@ -713,6 +1024,7 @@ function removeActiveAvatar(streamerId, userId) {
   const state = getStreamerState(streamerId);
   state.activeAvatars.delete(userId);
   logLine(`[bot] Removed avatar ${userId} from active list for streamer ${streamerId}`);
+  scheduleStateFlush(streamerId);
 }
 
 function getBotClientFor(streamerId) {
@@ -723,16 +1035,12 @@ function getBotClientFor(streamerId) {
 
 // Получить Twitch-канал ("#login") для конкретного стримера
 function getBotChannelFor(streamerId) {
-  try {
-    const { getUserByTwitchId } = require('../db');
-    const profile = getUserByTwitchId(streamerId);
-    if (profile && profile.login) {
-      return normalizeChannel(profile.login);
-    }
-    return null;
-  } catch (_) {
-    return null;
+  if (!streamerId) return null;
+  const botData = botClients.get(streamerId);
+  if (botData && botData.profile && botData.profile.login) {
+    return normalizeChannel(botData.profile.login);
   }
+  return null;
 }
 
 // Доступ к состояниям стримера (гонки/игры)
@@ -2080,6 +2388,6 @@ function finishRacePlan(winnerName, client, channel) {
   }
 }
 
-module.exports = { ensureBotFor, stopBot, status, addActiveAvatar, removeActiveAvatar, finishRace, finishFoodGame, getBotClient, getBotClientFor, getBotChannel, getBotChannelFor, startRace, startFoodGame, checkFoodGameCommand, checkFoodGameCheering, checkCarrotCollisions, spawnCarrot, joinFoodGame, startFoodGameCountdown, startFoodGameMonitoring, setAvatarTimeoutSeconds, getAvatarTimeoutSeconds, startRacePlan, joinRacePlan, checkRacePlanCommand, checkRacePlanCheering, spawnObstacle, checkRacePlanCollisions, handleRacePlanCollision, finishRacePlan, setAvatarMetrics, Game, racePlanState, getStreamerState };
+module.exports = { ensureBotFor, stopBot, status, addActiveAvatar, removeActiveAvatar, finishRace, finishFoodGame, getBotClient, getBotClientFor, getBotChannel, getBotChannelFor, startRace, startFoodGame, checkFoodGameCommand, checkFoodGameCheering, checkCarrotCollisions, spawnCarrot, joinFoodGame, startFoodGameCountdown, startFoodGameMonitoring, setAvatarTimeoutSeconds, getAvatarTimeoutSeconds, startRacePlan, joinRacePlan, checkRacePlanCommand, checkRacePlanCheering, spawnObstacle, checkRacePlanCollisions, handleRacePlanCollision, finishRacePlan, setAvatarMetrics, Game, racePlanState, getStreamerState, restoreBotsFromRedis };
 
 
