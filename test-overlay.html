@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест Overlay</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .input-group {
+            margin: 15px 0;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #ccc;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #555;
+            border-radius: 4px;
+            background: #333;
+            color: white;
+            font-size: 16px;
+        }
+        .button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        .button:hover {
+            background: #45a049;
+        }
+        .button.danger {
+            background: #f44336;
+        }
+        .button.danger:hover {
+            background: #da190b;
+        }
+        .status {
+            background: #2d2d2d;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+        .log {
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 15px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 0;
+        }
+        .log-entry.info { color: #2196F3; }
+        .log-entry.success { color: #4CAF50; }
+        .log-entry.error { color: #f44336; }
+        .log-entry.warning { color: #ff9800; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Тест Overlay</h1>
+        
+        <div class="input-group">
+            <label>Streamer ID (из логов):</label>
+            <input type="text" id="streamerId" value="41529761" placeholder="Введите ID стримера">
+        </div>
+        
+        <div class="input-group">
+            <label>Username для теста:</label>
+            <input type="text" id="username" value="1_tosik_1" placeholder="Введите имя пользователя">
+        </div>
+        
+        <button class="button" onclick="openOverlay()">Открыть Overlay</button>
+        <button class="button" onclick="testSpawn()">Тест Spawn</button>
+        <button class="button" onclick="testDonation()">Тест Donation</button>
+        <button class="button danger" onclick="clearLog()">Очистить лог</button>
+        
+        <div class="status">
+            <h3>Статус подключения:</h3>
+            <div id="connectionStatus">Не подключен</div>
+            <div id="subscriberCount">Подписчики: 0</div>
+        </div>
+        
+        <div class="log" id="logContainer">
+            <div class="log-entry info">Готов к тестированию...</div>
+        </div>
+    </div>
+
+    <script>
+        let sseConnection = null;
+        let logCount = 0;
+
+        function addLog(message, type = 'info') {
+            const container = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+            
+            logCount++;
+            if (logCount > 100) {
+                container.removeChild(container.firstChild);
+                logCount--;
+            }
+        }
+
+        function clearLog() {
+            const container = document.getElementById('logContainer');
+            container.innerHTML = '<div class="log-entry info">Лог очищен...</div>';
+            logCount = 0;
+        }
+
+        function openOverlay() {
+            const streamerId = document.getElementById('streamerId').value;
+            if (!streamerId) {
+                addLog('Введите Streamer ID', 'error');
+                return;
+            }
+            
+            const overlayUrl = `http://localhost:3000/overlay.html?streamer_id=${streamerId}`;
+            addLog(`Открываю overlay: ${overlayUrl}`, 'info');
+            window.open(overlayUrl, '_blank');
+        }
+
+        async function testSpawn() {
+            const streamerId = document.getElementById('streamerId').value;
+            const username = document.getElementById('username').value;
+            
+            if (!streamerId || !username) {
+                addLog('Заполните все поля', 'error');
+                return;
+            }
+            
+            try {
+                addLog(`Отправляю тест spawn для ${username}...`, 'info');
+                
+                const response = await fetch('/debug/fake-spawn', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        streamer_id: streamerId,
+                        username: username
+                    })
+                });
+                
+                const result = await response.json();
+                addLog(`Результат: ${JSON.stringify(result)}`, response.ok ? 'success' : 'error');
+                
+            } catch (error) {
+                addLog(`Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        async function testDonation() {
+            const streamerId = document.getElementById('streamerId').value;
+            const username = document.getElementById('username').value;
+            
+            if (!streamerId || !username) {
+                addLog('Заполните все поля', 'error');
+                return;
+            }
+            
+            try {
+                addLog(`Отправляю тест donation для ${username}...`, 'info');
+                
+                const response = await fetch('/debug/fake-donation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        streamer_id: streamerId,
+                        username: username,
+                        amount: 100,
+                        message: 'Тестовый донат'
+                    })
+                });
+                
+                const result = await response.json();
+                addLog(`Результат: ${JSON.stringify(result)}`, response.ok ? 'success' : 'error');
+                
+            } catch (error) {
+                addLog(`Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        // Подключение к SSE для мониторинга
+        function connectSSE() {
+            if (sseConnection) {
+                sseConnection.close();
+            }
+            
+            const streamerId = document.getElementById('streamerId').value;
+            const url = streamerId ? `/overlay/events?streamer_id=${streamerId}` : '/overlay/events';
+            
+            addLog(`Подключаюсь к SSE: ${url}`, 'info');
+            
+            sseConnection = new EventSource(url);
+            
+            sseConnection.onopen = () => {
+                addLog('SSE подключен', 'success');
+                document.getElementById('connectionStatus').textContent = 'Подключен';
+            };
+            
+            sseConnection.onerror = (error) => {
+                addLog('Ошибка SSE подключения', 'error');
+                document.getElementById('connectionStatus').textContent = 'Ошибка подключения';
+            };
+            
+            sseConnection.addEventListener('spawn', (e) => {
+                addLog(`[SSE] spawn: ${e.data}`, 'success');
+            });
+            
+            sseConnection.addEventListener('avatar:show', (e) => {
+                addLog(`[SSE] avatar:show: ${e.data}`, 'success');
+            });
+        }
+
+        // Проверка количества подписчиков
+        async function checkSubscribers() {
+            try {
+                const response = await fetch('/debug/subscribers');
+                const data = await response.json();
+                document.getElementById('subscriberCount').textContent = `Подписчики: ${data.total || 0}`;
+            } catch (error) {
+                addLog(`Ошибка проверки подписчиков: ${error.message}`, 'error');
+            }
+        }
+
+        // Автоматическая проверка подписчиков
+        setInterval(checkSubscribers, 2000);
+        
+        // Первоначальная проверка
+        checkSubscribers();
+        
+        addLog('Тестовая страница загружена. Нажмите "Подключить SSE" для мониторинга событий.', 'info');
+    </script>
+</body>
+</html>

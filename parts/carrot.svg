@@ -1,0 +1,13 @@
+<svg width="30" height="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+  <!-- Carrot body -->
+  <ellipse cx="15" cy="20" rx="8" ry="12" fill="#ff8c00" stroke="#ff6b00" stroke-width="1"/>
+  <!-- Carrot tip -->
+  <ellipse cx="15" cy="8" rx="3" ry="6" fill="#ffa500"/>
+  <!-- Carrot lines -->
+  <line x1="12" y1="15" x2="18" y2="15" stroke="#ff6b00" stroke-width="1"/>
+  <line x1="13" y1="18" x2="17" y2="18" stroke="#ff6b00" stroke-width="1"/>
+  <line x1="14" y1="21" x2="16" y2="21" stroke="#ff6b00" stroke-width="1"/>
+  <!-- Carrot leaves -->
+  <path d="M15 2 Q12 4 10 6 Q12 8 15 6 Q18 8 20 6 Q18 4 15 2" fill="#228b22"/>
+  <path d="M15 2 Q13 3 11 5 Q13 7 15 5 Q17 7 19 5 Q17 3 15 2" fill="#32cd32"/>
+</svg>
